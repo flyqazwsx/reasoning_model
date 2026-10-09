@@ -1,0 +1,9 @@
+.pytest_cache
+.venv
+cache
+checkpoints
+data
+exports
+logs
+outputs
+unsloth_compiled_cache
