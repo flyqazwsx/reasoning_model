@@ -16,6 +16,8 @@ from src.lib.unsloth_wrapper import load_model_4bit, enable_inference_mode
 from src.config import INFERENCE_LOGS_DB_PATH, CACHE_DIR
 import sqlite3
 
+from src.utils.database_init import connect_database
+
 logger = logging.getLogger(__name__)
 
 # 模型快取 (避免重複載入)
@@ -24,7 +26,7 @@ _model_cache: Dict[str, Tuple[Any, Any]] = {}
 
 def get_db_connection():
     """取得推論記錄資料庫連線"""
-    return sqlite3.connect(INFERENCE_LOGS_DB_PATH)
+    return connect_database(INFERENCE_LOGS_DB_PATH)
 
 
 def validate_inference_params(params: Dict[str, Any]) -> Tuple[bool, str]:

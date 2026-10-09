@@ -101,3 +101,19 @@ pending ──start──> running ──完成──> completed ──> (登錄
 ```
 
 規則：至少 10 題；`answer` 為正規化後的標準答案；`type` ∈ `number`／`text`。
+
+## 實作對齊既有資料庫結構（2026-10-09 實作時修訂，以此節為準）
+
+實作 Phase 2 時比對既有 `src/utils/database_init.py`，上方草稿與既有結構有出入，一律改為沿用既有欄位：
+
+| 草稿 | 既有結構 | 採用方式 |
+|------|----------|----------|
+| `LoRAAdapter.status`（available／missing） | `lora_adapters.is_available` | 沿用 `is_available`；成品檔不存在時設為 0 並從選單移除 |
+| `LoRAAdapter.path`、`job_id`、`adapter_id` 自動命名 | `storage_path`、`training_job_id`、`adapter_name`（UNIQUE） | 沿用既有欄位；`adapter_name` 即使用者看到的名稱，由時間自動產生 `ft-YYYYMMDD-HHMMSS` |
+| `InferenceRecord.model_kind`（base／finetuned） | `inference_records.model_type`（`base`／`fine_tuned`） | 沿用 `model_type`，不新增欄位 |
+| `EvaluationResult.model_kind` | — | 同上，欄位名稱改為 `model_type`，值為 `base`／`fine_tuned` |
+| 訓練狀態 `running`／`stopped`／`interrupted` | `training_jobs.status` CHECK：`pending`、`in_progress`、`completed`、`failed`、`early_stopped`、`user_stopped` | 沿用既有值（SQLite 無法直接修改 CHECK）。`interrupted` 不新增狀態：啟動時偵測到 `in_progress` 但無執行中的訓練執行緒，即視為「可繼續」 |
+| 登錄條件「僅 `completed`」 | — | `completed` 與 `early_stopped` 皆會產出可用成品，兩者都登錄；`failed`、`user_stopped` 不登錄 |
+| `BaseModel.recommended`／`gated` | `base_models` 無此欄位 | 不入庫；`recommended` 由 `config.DEFAULT_BASE_MODELS` 判定，`gated` 為下載當下的暫態結果 |
+
+**新增欄位（冪等遷移）**：`training_jobs.sample_count`、`training_datasets.has_reasoning_field`、`inference_records.thinking_text`／`answer_text`／`compare_group_id`；**新增資料表**：`evaluation_results`（`inference_logs.db`）。

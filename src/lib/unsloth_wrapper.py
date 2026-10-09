@@ -7,10 +7,18 @@ Unsloth API 封裝層
 from typing import Optional, Dict, Any
 import logging
 
-# 重要：Unsloth 要求必須先導入 unsloth 模組本身
-import unsloth  # noqa: F401
-
 logger = logging.getLogger(__name__)
+
+# 重要：Unsloth 要求必須先導入 unsloth 模組本身（早於 transformers／peft／trl）。
+# 沒有 NVIDIA GPU 的開發機無法安裝 Unsloth，因此匯入失敗時不中斷，
+# 改為在實際載入模型（load_model_4bit 等）時才報錯，讓單元／契約測試可在無 GPU 環境執行。
+try:
+    import unsloth  # noqa: F401
+
+    UNSLOTH_AVAILABLE = True
+except ImportError:
+    UNSLOTH_AVAILABLE = False
+    logger.warning("未安裝 Unsloth，僅能執行不需 GPU 的功能與測試")
 
 
 def load_model_4bit(
@@ -60,7 +68,7 @@ def load_model_4bit(
             max_seq_length=max_seq_length,
             dtype=dtype,
             load_in_4bit=load_in_4bit,
-            # token="hf_..." # 若需要存取私有模型
+            # 本應用程式僅支援公開模型，不傳入存取權杖（FR-017a）
         )
 
         logger.info(f"成功載入模型: {model_id} (4-bit 量化)")

@@ -18,8 +18,8 @@ class InferenceRecord:
     """
     record_id: Optional[int]  # AUTO INCREMENT, None when creating new
     model_id: str  # 使用的模型 ID
-    model_type: str  # "base" 或 "finetuned"
-    adapter_id: Optional[str]  # LoRA adapter ID (僅 finetuned 時)
+    model_type: str  # "base" 或 "fine_tuned"（與資料庫 CHECK 一致）
+    adapter_id: Optional[str]  # LoRA adapter ID (僅 fine_tuned 時)
     prompt: str  # 輸入提示詞
     output: str  # 模型輸出
     input_tokens: int  # 輸入 token 數量
@@ -35,18 +35,23 @@ class InferenceRecord:
     top_k: int = 50
     repetition_penalty: float = 1.0
 
+    # 思考過程與最終答案分離、並排對照（002）
+    thinking_text: Optional[str] = None
+    answer_text: Optional[str] = None
+    compare_group_id: Optional[str] = None
+
     def __post_init__(self):
         """驗證資料"""
         # 驗證 model_type
-        valid_types = ["base", "finetuned"]
+        valid_types = ["base", "fine_tuned"]
         if self.model_type not in valid_types:
             raise ValueError(
                 f"model_type 必須是 {valid_types} 之一，收到: {self.model_type}"
             )
 
-        # finetuned 必須有 adapter_id
-        if self.model_type == "finetuned" and not self.adapter_id:
-            raise ValueError("model_type 為 finetuned 時必須提供 adapter_id")
+        # fine_tuned 必須有 adapter_id
+        if self.model_type == "fine_tuned" and not self.adapter_id:
+            raise ValueError("model_type 為 fine_tuned 時必須提供 adapter_id")
 
         # 驗證 token 數量
         if self.input_tokens < 0 or self.output_tokens < 0:
@@ -79,6 +84,9 @@ class InferenceRecord:
             "top_p": self.top_p,
             "top_k": self.top_k,
             "repetition_penalty": self.repetition_penalty,
+            "thinking_text": self.thinking_text,
+            "answer_text": self.answer_text,
+            "compare_group_id": self.compare_group_id,
         }
 
     @classmethod

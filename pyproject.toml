@@ -13,10 +13,11 @@ dependencies = [
     "peft>=0.7.0",
     "bitsandbytes>=0.41.0",
     "accelerate>=0.25.0",
-    "trl>=0.7.0",
+    "huggingface_hub>=0.25.0",
+    "trl>=0.12.0",
 
     # Web 介面
-    "gradio>=4.0.0",
+    "gradio>=5.0.0",
 
     # 測試與開發工具
     "pytest>=7.4.0",
@@ -52,6 +53,10 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short --strict-markers"
+markers = [
+    "gpu: 需要 NVIDIA GPU 的測試（無 GPU 環境自動略過）",
+    "e2e: 端對端測試（Playwright 操作 Gradio 畫面）",
+]
 
 [tool.black]
 line-length = 100
@@ -65,11 +70,47 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# 002 新增模組必須完整型別標註（憲章 II）；既有模組於修改時逐步補齊
+module = [
+    "src.services.hardware_service",
+    "src.services.recommend_service",
+    "src.services.adapter_service",
+    "src.services.evaluation_service",
+    "src.models.evaluation_result",
+    "src.utils.response",
+    "src.utils.think_parser",
+]
+disallow_untyped_defs = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-select = ["E", "F", "I", "N", "W"]
-ignore = []
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "D"]
+ignore = ["D203", "D213", "D205", "D400", "D415"]
+
+[tool.ruff.lint.per-file-ignores]
+# 既有檔案尚未全面補 docstring，修改到該檔案時再移除對應項目
+"tests/**" = ["D"]
+"src/app.py" = ["D"]
+"src/ui/**" = ["D"]
+"src/lib/**" = ["D"]
+"src/utils/checkpoint.py" = ["D"]
+"src/utils/database_init.py" = ["D"]
+"src/utils/gpu_monitor.py" = ["D"]
+"src/utils/logger.py" = ["D"]
+"src/utils/storage.py" = ["D"]
+"src/services/dataset_service.py" = ["D"]
+"src/services/inference_service.py" = ["D"]
+"src/services/model_service.py" = ["D"]
+"src/services/training_service.py" = ["D"]
+"src/models/base_model.py" = ["D"]
+"src/models/inference_record.py" = ["D"]
+"src/models/lora_adapter.py" = ["D"]
+"src/models/training_dataset.py" = ["D"]
+"src/models/training_job.py" = ["D"]
 
 [tool.coverage.run]
 source = ["src"]

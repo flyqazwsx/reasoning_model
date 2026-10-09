@@ -57,6 +57,7 @@ DEFAULT_BASE_MODELS = [
         "model_size_gb": 14.0,
         "estimated_vram_gb": 3.5,  # 4-bit 量化後
         "description": "OpenAI o1 蒸餾模型，專注推理能力",
+        "recommended": True,
     },
     {
         "model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
@@ -66,6 +67,7 @@ DEFAULT_BASE_MODELS = [
         "model_size_gb": 16.0,
         "estimated_vram_gb": 4.0,
         "description": "DeepSeek-R1 蒸餾至 Llama，強推理能力",
+        "recommended": True,
     },
     {
         "model_id": "Qwen/Qwen2.5-8B-Instruct",
@@ -75,6 +77,7 @@ DEFAULT_BASE_MODELS = [
         "model_size_gb": 16.0,
         "estimated_vram_gb": 4.0,
         "description": "通用指令模型，可用於 reasoning 微調",
+        "recommended": True,
     },
 ]
 
@@ -249,8 +252,6 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # ===== 環境變數 =====
 
-# Hugging Face Token (用於存取私有模型)
-HF_TOKEN = os.getenv("HF_TOKEN", None)
 
 # Hugging Face Endpoint (可設定鏡像)
 HF_ENDPOINT = os.getenv("HF_ENDPOINT", "https://huggingface.co")
@@ -324,3 +325,19 @@ def validate_inference_params(params: Dict[str, Any]) -> tuple[bool, str]:
             if value < range_config["min"] or value > range_config["max"]:
                 return False, f"{param} 必須在 {range_config['min']} 到 {range_config['max']} 範圍內"
     return True, ""
+
+# ===== 002：推薦、訓練筆數與微調模型管理 =====
+
+# 推薦篩選：預估訓練 VRAM 不得超過可用 VRAM 的比例（保留餘裕避免臨界 OOM）
+RECOMMEND_VRAM_RATIO = 0.9
+
+# 訓練使用筆數（FR-009）
+SAMPLE_COUNT_DEFAULT = 2000
+SAMPLE_COUNT_MIN = 100
+
+# 微調模型成品位置（與 OUTPUTS_DIR 相同，刪除時須驗證路徑位於其下）
+ADAPTER_OUTPUT_DIR = OUTPUTS_DIR
+
+# 內建評測題庫（FR-016a）
+EVAL_QUESTIONS_PATH = PROJECT_ROOT / "src" / "resources" / "eval_questions.json"
+EVAL_MIN_QUESTIONS = 10

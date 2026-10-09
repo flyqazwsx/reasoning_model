@@ -15,6 +15,8 @@ from datetime import datetime
 from datasets import load_dataset
 import sqlite3
 
+from src.utils.database_init import connect_database
+
 from src.lib.unsloth_wrapper import load_model_4bit, setup_lora_config
 from src.models.training_job import TrainingJob
 from src.models.lora_adapter import LoRAAdapter
@@ -35,12 +37,12 @@ logger = logging.getLogger(__name__)
 
 def get_training_db_connection():
     """取得訓練任務資料庫連線"""
-    return sqlite3.connect(TRAINING_JOBS_DB_PATH)
+    return connect_database(TRAINING_JOBS_DB_PATH)
 
 
 def get_models_db_connection():
     """取得模型資料庫連線"""
-    return sqlite3.connect(MODELS_DB_PATH)
+    return connect_database(MODELS_DB_PATH)
 
 
 def validate_hyperparameters(hyperparams: Dict[str, Any]) -> Tuple[bool, str]:

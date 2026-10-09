@@ -11,12 +11,14 @@ from src.models.training_dataset import TrainingDataset
 from src.config import CACHE_DIR, DATASETS_DB_PATH
 import sqlite3
 
+from src.utils.database_init import connect_database
+
 logger = logging.getLogger(__name__)
 
 
 def get_db_connection():
     """取得資料庫連線"""
-    return sqlite3.connect(DATASETS_DB_PATH)
+    return connect_database(DATASETS_DB_PATH)
 
 
 def validate_dataset_format(dataset: Dataset) -> Tuple[bool, str]:

@@ -26,6 +26,8 @@ class BaseModel:
     model_size_gb: Optional[float] = None  # 實際模型大小（GB）
     architecture: Optional[str] = None  # 模型架構（如 "qwen2"）
     parameters: Optional[int] = None  # 參數數量
+    recommended: bool = False  # 是否屬內建推薦清單（不入庫，由 config 判定）
+    gated: bool = False  # 是否需授權才能下載（暫態，不入庫）
 
     def __post_init__(self):
         """驗證資料"""
@@ -62,6 +64,8 @@ class BaseModel:
             "model_size_gb": self.model_size_gb,
             "architecture": self.architecture,
             "parameters": self.parameters,
+            "recommended": self.recommended,
+            "gated": self.gated,
         }
 
     @classmethod

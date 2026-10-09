@@ -26,6 +26,7 @@ class TrainingDataset:
     dataset_format: str = "instruction"  # 資料集格式（instruction 或 prompt_response）
     split_config: Optional[str] = None  # 分割配置（如 "train[:90%]"）
     has_validation_split: bool = False  # 是否有獨立的驗證集
+    has_reasoning_field: bool = False  # 是否含思考／推理內容欄位
 
     def __post_init__(self):
         """驗證資料"""
@@ -56,6 +57,7 @@ class TrainingDataset:
             "dataset_format": self.dataset_format,
             "split_config": self.split_config,
             "has_validation_split": self.has_validation_split,
+            "has_reasoning_field": self.has_reasoning_field,
         }
 
     @classmethod

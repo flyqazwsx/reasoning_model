@@ -67,3 +67,28 @@ black --check src/ tests/ && ruff check src/ tests/ && mypy src/
 | 輸入的模型提示需授權 | 該項目為受限模型 | 本應用程式只支援公開項目，改選其他模型 |
 | `torch.cuda.is_available()` 為 False | 驅動與 CUDA 版本不符 | 重裝對應版本 PyTorch |
 | 重啟後下拉選單少了模型 | 成品資料夾被刪除 | 啟動時會自動移除失效項目，重新訓練即可 |
+
+## 7. 在 Windows 使用（2026-10-09 查證）
+
+專案程式碼本身可跨平台（路徑皆用 `Path`），但訓練依賴的 Unsloth 在 Windows 的支援度較低。
+
+| 方式 | 建議度 | 說明 |
+|------|--------|------|
+| **WSL2（Ubuntu）** | ✅ 建議 | 官方文件建議的方式；GPU 直通，步驟與第 1～3 節完全相同 |
+| **Docker／Podman** | ✅ 可行 | 本機目前未安裝，需要時再安裝（先詢問） |
+| **原生 Windows** | ⚠️ 可行但麻煩 | 官方文件**未提供完整的原生 Windows 安裝指南**；社群作法為安裝 `triton-windows`（需 PyTorch ≥ 2.4、CUDA 12）、`bitsandbytes`、`xformers`，並安裝 Visual Studio Build Tools |
+
+原生 Windows 的已知限制：
+
+- 訓練器須設定 `dataset_num_proc=1`，否則可能當機（程式已規劃在 Windows 自動套用，見 tasks.md T045）
+- 資料載入不使用多個 worker 行程
+- 無 NVIDIA GPU 的 Windows 機器只能執行單元／契約測試（`pytest -m "not gpu"`），無法訓練
+
+驗證指令（原生 Windows）：
+
+```powershell
+python -m bitsandbytes
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+> 資料來源：[Unsloth Windows 安裝文件](https://www.unsloth.ai/docs/get-started/install/windows-installation)。上述原生 Windows 細節來自摘要與社群資訊，實際安裝前請再核對官方文件。

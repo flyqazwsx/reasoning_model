@@ -6,7 +6,7 @@
 
 import sqlite3
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 import logging
 
 from src.config import (
@@ -144,6 +144,22 @@ INFERENCE_LOGS_DB_SCHEMAS = [
     "CREATE INDEX IF NOT EXISTS idx_inference_base_model ON inference_records(base_model_id)",
     "CREATE INDEX IF NOT EXISTS idx_inference_adapter ON inference_records(adapter_id)",
     "CREATE INDEX IF NOT EXISTS idx_inference_exported ON inference_records(is_exported)",
+    """
+    CREATE TABLE IF NOT EXISTS evaluation_results (
+        evaluation_id TEXT PRIMARY KEY,
+        model_type TEXT NOT NULL,
+        adapter_id TEXT,
+        base_model_id TEXT NOT NULL,
+        total_questions INTEGER NOT NULL,
+        correct_count INTEGER NOT NULL,
+        accuracy REAL NOT NULL,
+        duration_sec REAL NOT NULL,
+        compare_group_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK (model_type IN ('base', 'fine_tuned')),
+        CHECK (correct_count BETWEEN 0 AND total_questions)
+    )
+    """,
 ]
 
 # training_jobs.db schemas
@@ -190,6 +206,20 @@ TRAINING_JOBS_DB_SCHEMAS = [
     "CREATE INDEX IF NOT EXISTS idx_training_jobs_start_time ON training_jobs(start_time)",
 ]
 
+# 002 新增欄位（冪等遷移）：(資料表, 欄位, 欄位定義)
+# SQLite 無法修改既有 CHECK 約束，故只新增欄位，不改既有狀態值
+TRAINING_JOBS_MIGRATIONS = [
+    ("training_jobs", "sample_count", "INTEGER"),
+]
+DATASETS_MIGRATIONS = [
+    ("training_datasets", "has_reasoning_field", "BOOLEAN DEFAULT 0"),
+]
+INFERENCE_LOGS_MIGRATIONS = [
+    ("inference_records", "thinking_text", "TEXT"),
+    ("inference_records", "answer_text", "TEXT"),
+    ("inference_records", "compare_group_id", "TEXT"),
+]
+
 # Schema version table
 SCHEMA_VERSION_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -200,13 +230,32 @@ CREATE TABLE IF NOT EXISTS schema_version (
 """
 
 
-def init_database(db_path: Path, schemas: List[str]) -> None:
+def apply_migrations(cursor: sqlite3.Cursor, migrations: List[Tuple[str, str, str]]) -> None:
+    """冪等地新增欄位：欄位已存在則略過，既有資料不受影響
+
+    Args:
+        cursor: 資料庫游標
+        migrations: (資料表, 欄位, 欄位定義) 列表
+    """
+    for table, column, definition in migrations:
+        existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            logger.info(f"遷移：{table} 新增欄位 {column}")
+
+
+def init_database(
+    db_path: Path,
+    schemas: List[str],
+    migrations: Optional[List[Tuple[str, str, str]]] = None,
+) -> None:
     """
     初始化單一資料庫
 
     Args:
         db_path: 資料庫檔案路徑
         schemas: SQL schema 定義列表
+        migrations: 選用，要套用的欄位遷移 (資料表, 欄位, 欄位定義)
     """
     logger.info(f"初始化資料庫: {db_path}")
 
@@ -217,6 +266,8 @@ def init_database(db_path: Path, schemas: List[str]) -> None:
         # 執行所有 schema
         for schema in schemas:
             cursor.execute(schema)
+
+        apply_migrations(cursor, migrations or [])
 
         # 建立 schema_version table
         cursor.execute(SCHEMA_VERSION_TABLE)
@@ -249,11 +300,28 @@ def init_all_databases() -> None:
 
     # 初始化各個資料庫
     init_database(MODELS_DB_PATH, MODELS_DB_SCHEMAS)
-    init_database(DATASETS_DB_PATH, DATASETS_DB_SCHEMAS)
-    init_database(INFERENCE_LOGS_DB_PATH, INFERENCE_LOGS_DB_SCHEMAS)
-    init_database(TRAINING_JOBS_DB_PATH, TRAINING_JOBS_DB_SCHEMAS)
+    init_database(DATASETS_DB_PATH, DATASETS_DB_SCHEMAS, DATASETS_MIGRATIONS)
+    init_database(INFERENCE_LOGS_DB_PATH, INFERENCE_LOGS_DB_SCHEMAS, INFERENCE_LOGS_MIGRATIONS)
+    init_database(TRAINING_JOBS_DB_PATH, TRAINING_JOBS_DB_SCHEMAS, TRAINING_JOBS_MIGRATIONS)
 
     logger.info("所有資料庫初始化完成")
+
+
+def connect_database(db_path: Path) -> sqlite3.Connection:
+    """取得資料庫連線；資料庫檔案尚不存在時，先建立資料目錄並初始化全部資料庫
+
+    新 clone 的專案沒有 data/（已被 .gitignore 排除），服務層直接 sqlite3.connect
+    會因目錄不存在而失敗，統一由此函式處理。
+
+    Args:
+        db_path: 資料庫檔案路徑
+
+    Returns:
+        已開啟的 sqlite3 連線
+    """
+    if not db_path.exists():
+        init_all_databases()
+    return sqlite3.connect(str(db_path))
 
 
 def check_database_exists(db_path: Path) -> bool:

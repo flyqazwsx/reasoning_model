@@ -43,6 +43,7 @@ class TrainingJob:
     peak_vram_gb: Optional[float] = None
     avg_vram_gb: Optional[float] = None
     estimated_time_remaining_sec: Optional[float] = None
+    sample_count: Optional[int] = None  # 訓練使用筆數（FR-009）
 
     def __post_init__(self):
         """初始化後處理"""
@@ -82,6 +83,7 @@ class TrainingJob:
             "peak_vram_gb": self.peak_vram_gb,
             "avg_vram_gb": self.avg_vram_gb,
             "estimated_time_remaining_sec": self.estimated_time_remaining_sec,
+            "sample_count": self.sample_count,
         }
 
     @classmethod

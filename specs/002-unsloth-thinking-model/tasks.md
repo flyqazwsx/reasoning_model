@@ -23,10 +23,10 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ## Phase 1: Setup（共用基礎）
 
-- [ ] T001 在專案根目錄用 `uv venv --python 3.11 .venv` 建立環境，`uv pip install -e ".[dev]"`；於 `pyproject.toml` 補上 `huggingface_hub`、`ruff` 依賴，並依 quickstart.md 安裝 Unsloth；將 `gradio` 約束升為 `>=5.0.0`，`trl` 須為支援 `processing_class` 的版本（以官方文件／`uv pip index versions trl` 確認最低版本後寫入 `pyproject.toml`，不得沿用 `>=0.7.0`）
-- [ ] T002 [P] 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 登記 markers：`gpu`、`e2e`；新增 `[tool.ruff]`（行寬 100，啟用 docstring 規則 `D` 檢查公開函式）與 `[tool.mypy]`（`disallow_untyped_defs = true`）設定，落實憲章 II 的型別與文件要求
-- [ ] T003 [P] 新增 `tests/e2e/__init__.py` 與 `src/resources/__init__.py`（目錄骨架）
-- [ ] T004 [P] 修改 `check_gpu.py`：輸出 `torch.cuda.is_available()`、顯卡名稱、總／可用 VRAM，作為 quickstart 驗證步驟
+- [X] T001 在專案根目錄用 `uv venv --python 3.11 .venv` 建立環境，`uv pip install -e ".[dev]"`；於 `pyproject.toml` 補上 `huggingface_hub`、`ruff` 依賴，並依 quickstart.md 安裝 Unsloth；將 `gradio` 約束升為 `>=5.0.0`，`trl` 須為支援 `processing_class` 的版本（以官方文件／`uv pip index versions trl` 確認最低版本後寫入 `pyproject.toml`，不得沿用 `>=0.7.0`）
+- [X] T002 [P] 在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 登記 markers：`gpu`、`e2e`；新增 `[tool.ruff]`（行寬 100，啟用 docstring 規則 `D` 檢查公開函式）與 `[tool.mypy]`（`disallow_untyped_defs = true`）設定，落實憲章 II 的型別與文件要求
+- [X] T003 [P] 新增 `tests/e2e/__init__.py` 與 `src/resources/__init__.py`（目錄骨架）
+- [X] T004 [P] 修改 `check_gpu.py`：輸出 `torch.cuda.is_available()`、顯卡名稱、總／可用 VRAM，作為 quickstart 驗證步驟
 
 **Checkpoint**: 環境可 `pytest --collect-only` 無錯誤，`ruff check` 與 `mypy src/` 可執行
 
@@ -38,23 +38,23 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 測試（先寫，先確認失敗）
 
-- [ ] T005 [P] 新增 `tests/unit/test_config.py`：斷言 `config` 不再含 `HF_TOKEN`；含 `RECOMMEND_VRAM_RATIO=0.9`、`SAMPLE_COUNT_DEFAULT=2000`、`SAMPLE_COUNT_MIN=100`、`EVAL_QUESTIONS_PATH`、`ADAPTER_OUTPUT_DIR`
-- [ ] T006 [P] 新增 `tests/unit/test_database_init.py`：初始化後存在 `evaluation_results`；`training_jobs` 有 `sample_count`；`lora_adapters` 有 `status`；`inference_records` 有 `model_kind`、`thinking_text`、`answer_text`、`compare_group_id`；重複初始化不報錯（冪等）
-- [ ] T007 [P] 新增 `tests/unit/test_response.py`：`build_response(status, message, **extra)` 回傳含 `status`、`message`；`status` 僅允許 success／warning／error；非法值拋 `ValueError`
+- [X] T005 [P] 新增 `tests/unit/test_config.py`：斷言 `config` 不再含 `HF_TOKEN`；含 `RECOMMEND_VRAM_RATIO=0.9`、`SAMPLE_COUNT_DEFAULT=2000`、`SAMPLE_COUNT_MIN=100`、`EVAL_QUESTIONS_PATH`、`ADAPTER_OUTPUT_DIR`
+- [X] T006 [P] 新增 `tests/unit/test_database_init.py`：初始化後存在 `evaluation_results`；`training_jobs` 有 `sample_count`；`training_datasets` 有 `has_reasoning_field`；`inference_records` 有 `thinking_text`、`answer_text`、`compare_group_id`；重複初始化冪等；舊版資料庫可升級且資料不遺失（欄位對齊見 data-model.md 末節）
+- [X] T007 [P] 新增 `tests/unit/test_response.py`：`build_response(status, message, **extra)` 回傳含 `status`、`message`；`status` 僅允許 success／warning／error；非法值拋 `ValueError`
 
 ### 實作
 
-- [ ] T008 **修改** `src/config.py`：移除 `HF_TOKEN`；新增 T005 所列常數；`DEFAULT_BASE_MODELS` 標記 `recommended=True`
-- [ ] T009 **修改**所有引用 `HF_TOKEN` 的程式（先 `rg HF_TOKEN src/ tests/` 找出）：改為不傳 token 的公開下載（對應 FR-017a）
-- [ ] T010 **修改** `src/utils/database_init.py`：以冪等的 `ALTER TABLE … ADD COLUMN`（先檢查欄位是否存在）補上 T006 所列欄位，並於 `inference_logs.db` 建立 `evaluation_results`（沿用既有小寫蛇形資料表命名風格，同時更新 CLAUDE.md 的資料庫說明）
-- [ ] T011 [P] **新增** `src/models/evaluation_result.py`：`EvaluationResult` dataclass，欄位依 data-model.md，含 `__post_init__` 驗證與 `to_dict`／`from_db_row`
-- [ ] T012 [P] **修改** `src/models/base_model.py`：新增 `recommended`、`gated`
-- [ ] T013 [P] **修改** `src/models/training_dataset.py`：新增 `has_reasoning_field`
-- [ ] T014 [P] **修改** `src/models/training_job.py`：新增 `sample_count`，並加入 `interrupted` 狀態
-- [ ] T015 [P] **修改** `src/models/lora_adapter.py`：新增 `status`（available／missing）
-- [ ] T016 [P] **修改** `src/models/inference_record.py`：新增 `model_kind`、`thinking_text`、`answer_text`、`compare_group_id`
-- [ ] T017 **新增** `src/utils/response.py`：`build_response()`；**本任務只提供工具函式**，既有服務不在此批次改寫——各 Story 在修改某個服務函式時，順手把該函式的回應改用它，並由該 Story 的測試保護
-- [ ] T018 [P] **修改** `src/utils/logger.py`：新增 `get_training_logger(job_id)`，將完整日誌寫入 `logs/training_{job_id}.log`；確認日誌格式不會輸出任何機密
+- [X] T008 **修改** `src/config.py`：移除 `HF_TOKEN`；新增 T005 所列常數；`DEFAULT_BASE_MODELS` 標記 `recommended=True`
+- [X] T009 **修改**所有引用 `HF_TOKEN` 的程式（先 `rg HF_TOKEN src/ tests/` 找出）：改為不傳 token 的公開下載（對應 FR-017a）
+- [X] T010 **修改** `src/utils/database_init.py`：以冪等的 `ALTER TABLE … ADD COLUMN`（先檢查欄位是否存在）補上 T006 所列欄位，並於 `inference_logs.db` 建立 `evaluation_results`（沿用既有小寫蛇形資料表命名風格，同時更新 CLAUDE.md 的資料庫說明）
+- [X] T011 [P] **新增** `src/models/evaluation_result.py`：`EvaluationResult` dataclass，欄位依 data-model.md，含 `__post_init__` 驗證與 `to_dict`／`from_db_row`
+- [X] T012 [P] **修改** `src/models/base_model.py`：新增 `recommended`、`gated`
+- [X] T013 [P] **修改** `src/models/training_dataset.py`：新增 `has_reasoning_field`
+- [X] T014 [P] **修改** `src/models/training_job.py`：新增 `sample_count`（狀態值沿用既有 CHECK，不新增 `interrupted`，見 data-model.md 末節）
+- [X] T015 [P] **修改** `src/models/lora_adapter.py`：沿用既有 `is_available`，僅確認欄位對應與必要的輔助方法，不新增 `status`
+- [X] T016 [P] **修改** `src/models/inference_record.py`：新增 `thinking_text`、`answer_text`、`compare_group_id`（沿用既有 `model_type`，不新增 `model_kind`）
+- [X] T017 **新增** `src/utils/response.py`：`build_response()`；**本任務只提供工具函式**，既有服務不在此批次改寫——各 Story 在修改某個服務函式時，順手把該函式的回應改用它，並由該 Story 的測試保護
+- [X] T018 [P] **修改** `src/utils/logger.py`：新增 `get_training_logger(job_id)`，將完整日誌寫入 `logs/training_{job_id}.log`；確認日誌格式不會輸出任何機密
 
 **Checkpoint**: T005～T007 轉綠；`pytest tests/unit/ -q` 全過
 
@@ -128,7 +128,7 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 實作
 
-- [ ] T045 [US3] **修改** `src/services/training_service.py`：`start_training(…, sample_count)`；呼叫 T028 的 `train[:N]`；開訓前呼叫 `estimate_vram_usage()` 與可用 VRAM 比對
+- [ ] T045 [US3] **修改** `src/services/training_service.py`：`start_training(…, sample_count)`；呼叫 T028 的 `train[:N]`；開訓前呼叫 `estimate_vram_usage()` 與可用 VRAM 比對；Windows 平台（`sys.platform == "win32"`）自動設定 `dataset_num_proc=1`，並以單元測試驗證
 - [ ] T046 [US3] **修改** `src/services/training_service.py`：訓練改在背景執行緒，以 queue 回報 epoch／step／loss／ETA，供 generator 讀取；同時寫入 T018 的訓練日誌檔
 - [ ] T047 [US3] **修改** `src/services/training_service.py`：`stop_training(job_id, confirmed)`、`resume_training(job_id)`、OOM／網路／空間錯誤對應友善訊息（沿用 CLAUDE.md 錯誤處理規則）；OOM 時呼叫 `clear_gpu_cache()` 釋放資源並將任務標為 `failed`
 - [ ] T048 [US3] **修改** `src/ui/tabs/training_tab.py`、`src/ui/events.py`：新增「使用筆數」欄位（預設 2000）；進度條、損失、ETA、日誌框；開始後鎖定其他分頁的下載／選模型／刪除／推論／評測按鈕，結束（完成、失敗、終止）後依實際狀態恢復；終止按鈕先彈出警告確認；中斷後顯示「繼續訓練」
