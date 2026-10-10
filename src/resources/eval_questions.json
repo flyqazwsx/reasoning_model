@@ -1,0 +1,74 @@
+[
+  {
+    "id": "q01",
+    "question": "小明有 5 顆蘋果，吃掉 2 顆後，媽媽又給他 4 顆，現在小明有幾顆蘋果？",
+    "answer": "7",
+    "type": "number"
+  },
+  {
+    "id": "q02",
+    "question": "一支筆 15 元，買 6 支共需多少元？",
+    "answer": "90",
+    "type": "number"
+  },
+  {
+    "id": "q03",
+    "question": "一個長方形長 12 公分、寬 7 公分，面積是多少平方公分？",
+    "answer": "84",
+    "type": "number"
+  },
+  {
+    "id": "q04",
+    "question": "一輛車以每小時 60 公里的速度行駛 2.5 小時，共行駛多少公里？",
+    "answer": "150",
+    "type": "number"
+  },
+  {
+    "id": "q05",
+    "question": "班上有 36 位學生，其中四分之一戴眼鏡，戴眼鏡的有幾位？",
+    "answer": "9",
+    "type": "number"
+  },
+  {
+    "id": "q06",
+    "question": "一件原價 800 元的衣服打 75 折，售價是多少元？",
+    "answer": "600",
+    "type": "number"
+  },
+  {
+    "id": "q07",
+    "question": "已知 3x + 7 = 28，求 x 的值。",
+    "answer": "7",
+    "type": "number"
+  },
+  {
+    "id": "q08",
+    "question": "一個數的 3 倍減 8 等於 25，這個數是多少？",
+    "answer": "11",
+    "type": "number"
+  },
+  {
+    "id": "q09",
+    "question": "小華有 120 元，買了 3 本單價 25 元的筆記本，還剩多少元？",
+    "answer": "45",
+    "type": "number"
+  },
+  {
+    "id": "q10",
+    "question": "連續三個整數的和是 72，其中最大的數是多少？",
+    "answer": "25",
+    "type": "number"
+  },
+  {
+    "id": "q11",
+    "question": "水桶每分鐘注入 4 公升的水，要注滿 90 公升需要多少分鐘？",
+    "answer": "22.5",
+    "type": "number"
+  },
+  {
+    "id": "q12",
+    "question": "2 個蘋果加 3 個橘子共 31 元，已知 1 個蘋果 8 元，1 個橘子多少元？",
+    "answer": "5",
+    "type": "number"
+  }
+]

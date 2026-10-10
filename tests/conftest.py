@@ -168,11 +168,13 @@ def isolated_download_markers(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def reset_training_state():
     """每個測試前後清除訓練執行狀態，避免訓練鎖定外洩到其他測試"""
-    from src.utils import training_state
+    from src.utils import inference_state, training_state
 
     training_state.reset()
+    inference_state.reset()
     yield
     training_state.reset()
+    inference_state.reset()
 
 
 @pytest.fixture
@@ -184,7 +186,7 @@ def training_env(tmp_path, monkeypatch):
     """
     from types import SimpleNamespace
 
-    from src.services import training_service
+    from src.services import adapter_service, training_service
     from src.utils.database_init import (
         MODELS_DB_SCHEMAS,
         TRAINING_JOBS_DB_SCHEMAS,
@@ -200,7 +202,30 @@ def training_env(tmp_path, monkeypatch):
     checkpoints = tmp_path / "checkpoints"
     outputs = tmp_path / "outputs"
     monkeypatch.setattr(training_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db)))
-    monkeypatch.setattr(training_service, "get_models_db_connection", lambda: sqlite3.connect(str(models_db)))
+    monkeypatch.setattr(adapter_service, "get_models_db_connection", lambda: sqlite3.connect(str(models_db)))
+    monkeypatch.setattr(adapter_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db)))
+    monkeypatch.setattr(adapter_service, "ADAPTER_OUTPUT_DIR", outputs)
     monkeypatch.setattr(training_service, "CHECKPOINTS_DIR", checkpoints)
     monkeypatch.setattr(training_service, "OUTPUTS_DIR", outputs)
     return SimpleNamespace(db_path=jobs_db, models_db_path=models_db, checkpoints=checkpoints, outputs=outputs)
+
+
+@pytest.fixture
+def inference_db(tmp_path, monkeypatch):
+    """推論記錄資料庫（inference_logs.db）的隔離環境，推論與評測服務共用
+
+    Returns:
+        資料庫檔案路徑
+    """
+    from src.services import evaluation_service, inference_service
+    from src.utils.database_init import (
+        INFERENCE_LOGS_DB_SCHEMAS,
+        INFERENCE_LOGS_MIGRATIONS,
+        init_database,
+    )
+
+    db_path = tmp_path / "inference_logs.db"
+    init_database(db_path, INFERENCE_LOGS_DB_SCHEMAS, INFERENCE_LOGS_MIGRATIONS)
+    monkeypatch.setattr(inference_service, "get_db_connection", lambda: sqlite3.connect(str(db_path)))
+    monkeypatch.setattr(evaluation_service, "get_db_connection", lambda: sqlite3.connect(str(db_path)))
+    return db_path

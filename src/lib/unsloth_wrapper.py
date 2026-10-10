@@ -160,3 +160,31 @@ def enable_inference_mode(model):
         logger.info("已啟用標準推論模式")
 
     return model
+
+
+def load_adapter_4bit(base_model_id: str, adapter_path: str, max_seq_length: int = 2048):
+    """
+    載入 4-bit 基底模型並掛上訓練好的 LoRA adapter（推論用）
+
+    每次都重新載入一份基底模型再掛 adapter，不會改動已快取的純基底模型，
+    因此基底與微調模型的推論結果可以放心對照。
+
+    Args:
+        base_model_id: 基底模型 Hugging Face ID（須已下載）
+        adapter_path: 訓練產出的 adapter 資料夾
+        max_seq_length: 最大序列長度
+
+    Returns:
+        (model, tokenizer)
+    """
+    model, tokenizer = load_model_4bit(
+        model_id=base_model_id, max_seq_length=max_seq_length, load_in_4bit=True
+    )
+    try:
+        from peft import PeftModel
+    except ImportError:
+        raise ImportError("PEFT 是此專案的必要依賴，請依照 README 重新安裝相依套件。")
+
+    logger.info(f"掛載 LoRA adapter: {adapter_path}")
+    model = PeftModel.from_pretrained(model, adapter_path, is_trainable=False)
+    return model, tokenizer

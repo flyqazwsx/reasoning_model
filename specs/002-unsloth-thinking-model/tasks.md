@@ -145,24 +145,24 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 測試（先寫，先確認失敗）⚠️
 
-- [ ] T050 [P] [US4] 新增 `tests/unit/test_adapter_service.py`：僅 `completed` 登錄、`failed`／`stopped` 不登錄；`cleanup_missing()` 移除成品不存在的項目；`delete_adapter` 需 `confirmed=True`；推論／訓練中禁止刪除；路徑不在 `outputs/` 之下一律拒絕（含 `../` 路徑穿越案例）；刪光後 `infer_button_interactive=False`
-- [ ] T051 [P] [US4] 新增 `tests/unit/test_evaluation_service.py`：答案正規化（去空白、取最後一個數字）；`accuracy = correct/total`；題庫 < 10 題 → 拒絕；訓練中禁止執行
-- [ ] T052 [P] [US4] 新增 `tests/unit/test_eval_questions.py`：`src/resources/eval_questions.json` 至少 10 題；每題含 `id`／`question`／`answer`／`type`；`id` 不重複
-- [ ] T053 [P] [US4] 修改 `tests/unit/test_inference_service.py`：`run_finetuned_inference` 載入 base + adapter；`run_compare` 依序（先基底、後微調）執行，兩筆紀錄共用 `compare_group_id`
-- [ ] T054 [P] [US4] 修改 `tests/contract/test_gradio_events_002.py` 的 E-05～E-10：訓練完成回傳 `adapter_choices` 與 `infer_button_interactive=true`（5 秒內）；刪除需二次確認；清理事件格式
-- [ ] T055 [P] [US4] 新增 `tests/integration/test_adapter_lifecycle.py`：訓練完成→登錄→重啟（重新初始化）→仍在→手動刪成品資料夾→啟動清理後消失
-- [ ] T056 [P] [US4] 新增 `tests/integration/test_evaluation_flow_gpu.py`（`@pytest.mark.gpu`）：10 題評測在 10 分鐘內完成並寫入 `evaluation_results`
+- [x] T050 [P] [US4] 新增 `tests/unit/test_adapter_service.py`：僅 `completed` 登錄、`failed`／`stopped` 不登錄；`cleanup_missing()` 移除成品不存在的項目；`delete_adapter` 需 `confirmed=True`；推論／訓練中禁止刪除；路徑不在 `outputs/` 之下一律拒絕（含 `../` 路徑穿越案例）；刪光後 `infer_button_interactive=False`
+- [x] T051 [P] [US4] 新增 `tests/unit/test_evaluation_service.py`：答案正規化（去空白、取最後一個數字）；`accuracy = correct/total`；題庫 < 10 題 → 拒絕；訓練中禁止執行
+- [x] T052 [P] [US4] 新增 `tests/unit/test_eval_questions.py`：`src/resources/eval_questions.json` 至少 10 題；每題含 `id`／`question`／`answer`／`type`；`id` 不重複
+- [x] T053 [P] [US4] 修改 `tests/unit/test_inference_service.py`：`run_finetuned_inference` 載入 base + adapter；`run_compare` 依序（先基底、後微調）執行，兩筆紀錄共用 `compare_group_id`（實作：測試放在獨立檔 `tests/unit/test_finetuned_inference.py`，共用 fixture 見 `tests/conftest.py::inference_db`）
+- [x] T054 [P] [US4] 修改 `tests/contract/test_gradio_events_002.py` 的 E-05～E-10：訓練完成回傳 `adapter_choices` 與 `infer_button_interactive=true`（5 秒內）；刪除需二次確認；清理事件格式
+- [x] T055 [P] [US4] 新增 `tests/integration/test_adapter_lifecycle.py`：訓練完成→登錄→重啟（重新初始化）→仍在→手動刪成品資料夾→啟動清理後消失
+- [x] T056 [P] [US4] 新增 `tests/integration/test_evaluation_flow_gpu.py`（`@pytest.mark.gpu`）：10 題評測在 10 分鐘內完成並寫入 `evaluation_results`（無 GPU 的開發機略過；需設定 `EVAL_TEST_ADAPTER_ID`）
 
 ### 實作
 
-- [ ] T057 [P] [US4] **新增** `src/resources/eval_questions.json`：至少 10 題數學推理題（單一數值答案），題目自編並人工核對答案
-- [ ] T058 [US4] **新增** `src/services/adapter_service.py`：`register_adapter`、`list_adapters`、`delete_adapter`（路徑守衛：`Path.resolve()` 後須在 `ADAPTER_OUTPUT_DIR` 之下）、`cleanup_missing`
-- [ ] T059 [US4] **修改** `src/services/training_service.py`：訓練成功後呼叫 `adapter_service.register_adapter`；移除原本內建的登錄程式（`register_lora_adapter`）避免重複，保留對外相容的薄封裝或同步更新所有呼叫端
-- [ ] T060 [US4] **修改** `src/services/inference_service.py`：新增 `run_finetuned_inference()`、`run_compare()`（依序載入、切換前釋放 VRAM）
-- [ ] T061 [US4] **新增** `src/services/evaluation_service.py`：`run_evaluation(adapter_id)` generator，逐題生成、比對、回報進度並持久化 `EvaluationResult`
-- [ ] T062 [US4] **修改** `src/ui/tabs/training_tab.py`、`src/ui/events.py`：下拉選單（`gr.update(choices=…)`）、「用微調模型推論」初始 `interactive=False`、完成後解鎖；並排對照區；「執行題庫評測」按鈕（選配）；「刪除」按鈕含確認
-- [ ] T063 [US4] **修改** `src/app.py`：啟動時呼叫 `adapter_service.cleanup_missing()`，並依結果初始化下拉選單與按鈕狀態
-- [ ] T064 [US4] 執行 T050～T056 轉綠
+- [x] T057 [P] [US4] **新增** `src/resources/eval_questions.json`：至少 10 題數學推理題（單一數值答案），題目自編並人工核對答案
+- [x] T058 [US4] **新增** `src/services/adapter_service.py`：`register_adapter`、`list_adapters`、`delete_adapter`（路徑守衛：`Path.resolve()` 後須在 `ADAPTER_OUTPUT_DIR` 之下）、`cleanup_missing`
+- [x] T059 [US4] **修改** `src/services/training_service.py`：訓練成功後呼叫 `adapter_service.register_adapter`；移除原本內建的登錄程式（`register_lora_adapter`）避免重複，保留對外相容的薄封裝或同步更新所有呼叫端
+- [x] T060 [US4] **修改** `src/services/inference_service.py`：新增 `run_finetuned_inference()`、`run_compare()`（依序載入、切換前釋放 VRAM）
+- [x] T061 [US4] **新增** `src/services/evaluation_service.py`：`run_evaluation(adapter_id)` generator，逐題生成、比對、回報進度並持久化 `EvaluationResult`
+- [x] T062 [US4] **修改** `src/ui/tabs/training_tab.py`、`src/ui/events.py`：下拉選單（`gr.update(choices=…)`）、「用微調模型推論」初始 `interactive=False`、完成後解鎖；並排對照區；「執行題庫評測」按鈕（選配）；「刪除」按鈕含確認（實作：新增 `src/ui/tabs/finetuned_tab.py` 承載微調推論／對照／評測／刪除；訓練結束後的選單與按鈕解鎖由既有 `ui_lock` refresh 事件鏈處理，未改動 `events.py`）
+- [x] T063 [US4] **修改** `src/app.py`：啟動時呼叫 `adapter_service.cleanup_missing()`，並依結果初始化下拉選單與按鈕狀態
+- [x] T064 [US4] 執行 T050～T056 轉綠
 
 **Checkpoint**: 四個 Story 全部完成，閉環可運作
 

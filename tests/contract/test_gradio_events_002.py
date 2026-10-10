@@ -591,3 +591,373 @@ class TestResumeUi:
         assert mock_stream.call_args.kwargs["resume_job_id"] == "old-job"
         for component in training_ui.components:
             assert events[0][component]["interactive"] is False
+
+
+# ===== US4：E-05～E-10 微調模型登錄、推論、對照、評測、刪除、清理 =====
+
+import json as _json  # noqa: E402
+import sqlite3 as _sqlite3  # noqa: E402
+import time as _time  # noqa: E402
+
+from src.services import adapter_service, evaluation_service  # noqa: E402
+
+
+def _seed_job(env, job_id: str, status: str = "completed") -> None:
+    adapter_dir = env.outputs / f"adapter_{job_id}"
+    adapter_dir.mkdir(parents=True)
+    (adapter_dir / "adapter_model.safetensors").write_bytes(b"x" * 1024)
+    conn = _sqlite3.connect(str(env.db_path))
+    conn.execute(
+        "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, "
+        "hyperparameters, total_steps, output_adapter_path) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+        (
+            job_id,
+            f"job-{job_id}",
+            TRAINING_MODEL,
+            TRAINING_DATASET,
+            status,
+            _json.dumps({}),
+            str(adapter_dir),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestE05TrainingCompleteRegistration:
+    def test_completed_returns_choices_and_unlocks_within_5_seconds(self, training_env):
+        _seed_job(training_env, "job1")
+
+        started = _time.monotonic()
+        response = adapter_service.register_adapter("job1")
+        elapsed = _time.monotonic() - started
+
+        assert_contract_shape(response)
+        assert response["status"] == "success"
+        assert response["adapter_choices"] == [response["adapter_id"]]
+        assert response["infer_button_interactive"] is True
+        assert elapsed < 5
+
+    @pytest.mark.parametrize("status", ["failed", "user_stopped"])
+    def test_failed_or_stopped_does_not_unlock(self, training_env, status):
+        _seed_job(training_env, "job1", status)
+
+        response = adapter_service.register_adapter("job1")
+
+        assert_contract_shape(response)
+        assert response["infer_button_interactive"] is False
+        assert response["adapter_choices"] == []
+
+    def test_unknown_job_error_has_next_step(self, training_env):
+        response = adapter_service.register_adapter("missing")
+
+        assert_contract_shape(response)
+        assert response["status"] == "error"
+        assert_error_has_next_step(response)
+
+
+class TestE09DeleteAdapter:
+    def test_first_click_requires_confirmation(self, training_env):
+        _seed_job(training_env, "job1")
+        adapter_service.register_adapter("job1")
+
+        response = adapter_service.delete_adapter("adapter_job1", confirmed=False)
+
+        assert_contract_shape(response)
+        assert response["status"] == "warning"
+        assert response["confirm_required"] is True
+        assert response["message"] == "確定要刪除 adapter_job1？此動作無法復原"
+
+    def test_confirmed_delete_response_fields(self, training_env):
+        _seed_job(training_env, "job1")
+        adapter_service.register_adapter("job1")
+
+        response = adapter_service.delete_adapter("adapter_job1", confirmed=True)
+
+        assert_contract_shape(response)
+        assert response["status"] == "success"
+        assert response["adapter_choices"] == []
+        assert response["infer_button_interactive"] is False
+
+    def test_busy_error_has_exact_message(self, training_env):
+        _seed_job(training_env, "job1")
+        adapter_service.register_adapter("job1")
+        training_state.begin_job("running")
+
+        response = adapter_service.delete_adapter("adapter_job1", confirmed=True)
+
+        assert_contract_shape(response)
+        assert response["status"] == "error"
+        assert response["message"] == "目前正在使用此模型，請稍後再刪除"
+        assert_error_has_next_step(response)
+
+
+class TestE10StartupCleanup:
+    def test_response_shape(self, training_env):
+        _seed_job(training_env, "job1")
+        adapter_service.register_adapter("job1")
+        (training_env.outputs / "adapter_job1" / "adapter_model.safetensors").unlink()
+        (training_env.outputs / "adapter_job1").rmdir()
+
+        response = adapter_service.cleanup_missing()
+
+        assert_contract_shape(response)
+        assert response["removed"] == ["adapter_job1"]
+
+
+class TestE06E07E08ErrorShape:
+    """沒有微調模型或訓練中時，三個串流事件都回傳單一、合法的錯誤事件"""
+
+    def test_finetuned_inference_unknown_adapter(self, training_env):
+        chunks = list(inference_service.run_finetuned_inference("nope", "Q"))
+
+        assert len(chunks) == 1
+        assert_contract_shape(chunks[0])
+        assert chunks[0]["status"] == "error"
+        assert chunks[0]["finished"] is True
+        assert_error_has_next_step(chunks[0])
+
+    def test_compare_unknown_adapter(self, training_env):
+        chunks = list(inference_service.run_compare("nope", "Q"))
+
+        assert len(chunks) == 1
+        assert_contract_shape(chunks[0])
+        assert chunks[0]["status"] == "error"
+
+    def test_evaluation_unknown_adapter(self, training_env):
+        events = list(evaluation_service.run_evaluation("nope"))
+
+        assert len(events) == 1
+        assert_contract_shape(events[0])
+        assert events[0]["status"] == "error"
+        assert {"progress", "current_question", "base_accuracy", "finetuned_accuracy", "results"} <= set(
+            events[0]
+        )
+
+    @pytest.mark.parametrize("event", ["finetuned", "compare", "evaluation"])
+    def test_rejected_while_training_with_exact_message(self, training_env, event):
+        training_state.begin_job("running")
+        runner = {
+            "finetuned": lambda: inference_service.run_finetuned_inference("a", "Q"),
+            "compare": lambda: inference_service.run_compare("a", "Q"),
+            "evaluation": lambda: evaluation_service.run_evaluation("a"),
+        }[event]
+
+        first = list(runner())[0]
+
+        assert first["status"] == "error"
+        assert first["message"] == "訓練進行中，請稍後再推論"
+
+
+class TestFinetunedTabUi:
+    """微調推論分頁：按鈕狀態、訓練後解鎖、刪除二次確認"""
+
+    @pytest.fixture
+    def finetuned_ui(self):
+        import gradio as gr
+
+        from src.ui.tabs import finetuned_tab, inference_tab, setup_tab, training_tab
+
+        ui_lock.reset()
+        with gr.Blocks() as demo:
+            with gr.Tabs():
+                setup_tab.create_setup_tab()
+                inference_tab.create_inference_tab()
+                training_tab.create_training_tab()
+                finetuned_tab.create_finetuned_tab()
+            training_tab.bind_training_events()
+
+        yield SimpleNamespace(
+            handlers={fn.fn.__name__: fn.fn for fn in demo.fns.values()},
+            names=ui_lock.registered_names(),
+            refreshable_names=[
+                target.name for target in ui_lock._targets if target.refresh is not None
+            ],
+        )
+        ui_lock.reset()
+
+    @staticmethod
+    def _adapter(adapter_id: str = "adapter_job1") -> dict:
+        return {
+            "adapter_id": adapter_id,
+            "adapter_name": "ft-20261010-120000",
+            "base_model_id": TRAINING_MODEL,
+            "training_dataset_id": TRAINING_DATASET,
+            "final_train_loss": 0.4,
+            "is_early_stopped": 0,
+            "file_size_mb": 12.5,
+            "created_at": "2026-10-10T12:00:00",
+        }
+
+    def test_buttons_disabled_when_no_adapter(self, finetuned_ui):
+        with (
+            patch.object(adapter_service, "list_adapters", return_value=[]),
+            patch.object(adapter_service, "adapter_choices", return_value=[]),
+        ):
+            result = finetuned_ui.handlers["handle_refresh"](None, [])
+
+        buttons = result[2:6]
+        assert all(button["interactive"] is False for button in buttons)
+
+    def test_buttons_enabled_after_adapter_appears(self, finetuned_ui):
+        adapter = self._adapter()
+        with (
+            patch.object(adapter_service, "list_adapters", return_value=[adapter]),
+            patch.object(adapter_service, "adapter_choices", return_value=["adapter_job1"]),
+            patch.object(adapter_service, "get_adapter", return_value=adapter),
+        ):
+            result = finetuned_ui.handlers["handle_refresh"](None, [])
+
+        assert result[0]["value"] == "adapter_job1"
+        assert all(button["interactive"] is True for button in result[2:6])
+        assert result[6] == ["adapter_job1"]
+
+    def test_new_adapter_is_selected_after_training(self, finetuned_ui):
+        newest = self._adapter("adapter_new")
+        with (
+            patch.object(adapter_service, "list_adapters", return_value=[newest]),
+            patch.object(
+                adapter_service, "adapter_choices", return_value=["adapter_new", "adapter_old"]
+            ),
+            patch.object(adapter_service, "get_adapter", return_value=newest),
+        ):
+            result = finetuned_ui.handlers["handle_refresh"]("adapter_old", ["adapter_old"])
+
+        assert result[0]["value"] == "adapter_new"
+
+    def test_buttons_are_locked_during_training_and_dropdown_refreshes_after(self, finetuned_ui):
+        for name in (
+            "finetuned_infer_btn",
+            "finetuned_compare_btn",
+            "finetuned_eval_btn",
+            "finetuned_delete_btn",
+            "finetuned_adapter_dropdown",
+        ):
+            assert name in finetuned_ui.names
+        assert "finetuned_adapter_dropdown" in finetuned_ui.refreshable_names
+
+    def test_delete_first_click_only_shows_confirmation(self, finetuned_ui):
+        with (
+            patch.object(adapter_service, "get_adapter", return_value=self._adapter()),
+            patch.object(adapter_service, "delete_adapter") as delete,
+        ):
+            delete.return_value = {
+                "status": "warning",
+                "message": "確定要刪除 adapter_job1？此動作無法復原",
+                "confirm_required": True,
+            }
+            row, message = finetuned_ui.handlers["handle_delete_request"]("adapter_job1")
+
+        assert row["visible"] is True
+        assert "無法復原" in message
+        delete.assert_called_once_with("adapter_job1", confirmed=False)
+
+    def test_delete_confirm_calls_service_with_confirmed_true(self, finetuned_ui):
+        with (
+            patch.object(adapter_service, "delete_adapter") as delete,
+            patch.object(adapter_service, "adapter_choices", return_value=[]),
+            patch.object(adapter_service, "list_adapters", return_value=[]),
+        ):
+            delete.return_value = {"status": "success", "message": "已刪除 adapter_job1"}
+            result = finetuned_ui.handlers["handle_delete_confirm"]("adapter_job1", ["adapter_job1"])
+
+        delete.assert_called_once_with("adapter_job1", confirmed=True)
+        assert result[0]["visible"] is False
+        assert "已刪除" in result[1]
+        assert all(button["interactive"] is False for button in result[4:8])
+
+    def test_delete_error_is_shown_not_hidden(self, finetuned_ui):
+        with patch.object(adapter_service, "delete_adapter") as delete:
+            delete.return_value = {
+                "status": "error",
+                "message": "目前正在使用此模型，請稍後再刪除",
+            }
+            row, message = finetuned_ui.handlers["handle_delete_request"]("adapter_job1")
+
+        assert row["visible"] is False
+        assert "目前正在使用此模型" in message
+
+    def test_infer_error_shows_notification_and_reenables_buttons(self, finetuned_ui):
+        error = {
+            "status": "error",
+            "message": "找不到此微調模型，可能已被刪除",
+            "suggestion": "請重新整理微調模型選單後再試",
+            "finished": True,
+        }
+        with patch("src.ui.tabs.finetuned_tab.run_finetuned_inference", return_value=iter([error])):
+            updates = list(finetuned_ui.handlers["handle_infer"]("x", "Q", 512, 0.7, 0.9, 50, 1.1))
+
+        assert len(updates) == 1
+        assert "找不到此微調模型" in updates[0][5]["value"]
+        assert all(button["interactive"] is True for button in updates[0][6:10])
+
+    def test_infer_streams_into_finetuned_column_and_locks_buttons(self, finetuned_ui):
+        chunks = [
+            {"status": "success", "message": "思考中…", "thinking_text": "想", "answer_text": "", "finished": False},
+            {
+                "status": "success",
+                "message": "推論完成",
+                "thinking_text": "想",
+                "answer_text": "答",
+                "finished": True,
+                "inference_time_sec": 1.0,
+                "output_tokens": 5,
+                "tokens_per_second": 5.0,
+                "vram_used_gb": 4.0,
+            },
+        ]
+        with patch("src.ui.tabs.finetuned_tab.run_finetuned_inference", return_value=iter(chunks)):
+            updates = list(finetuned_ui.handlers["handle_infer"]("x", "Q", 512, 0.7, 0.9, 50, 1.1))
+
+        assert updates[0][2] == "想"
+        assert updates[0][6]["interactive"] is False
+        assert updates[-1][3] == "答"
+        assert updates[-1][6]["interactive"] is True
+
+    def test_compare_fills_both_columns(self, finetuned_ui):
+        side = {"thinking_text": "想", "answer_text": "答"}
+        done = {
+            **side,
+            "inference_time_sec": 1.0,
+            "output_tokens": 5,
+            "tokens_per_second": 5.0,
+            "vram_used_gb": 4.0,
+        }
+        chunks = [
+            {
+                "status": "success",
+                "message": "對照完成",
+                "base": done,
+                "finetuned": done,
+                "compare_group_id": "g",
+                "finished": True,
+            }
+        ]
+        with patch("src.ui.tabs.finetuned_tab.run_compare", return_value=iter(chunks)):
+            updates = list(finetuned_ui.handlers["handle_compare"]("x", "Q", 512, 0.7, 0.9, 50, 1.1))
+
+        final = updates[-1]
+        assert (final[0], final[1], final[2], final[3]) == ("想", "答", "想", "答")
+        assert "基底" in final[4] and "微調" in final[4]
+
+    def test_evaluation_shows_accuracy_table(self, finetuned_ui):
+        results = [
+            {"model_type": "base", "correct_count": 4, "total_questions": 10, "accuracy": 0.4, "duration_sec": 30},
+            {"model_type": "fine_tuned", "correct_count": 8, "total_questions": 10, "accuracy": 0.8, "duration_sec": 31},
+        ]
+        events = [
+            {"status": "success", "message": "基底模型：第 1/10 題完成", "progress": 0.05, "finished": False},
+            {
+                "status": "success",
+                "message": "評測完成：基底 40%，微調 80%",
+                "progress": 1.0,
+                "finished": True,
+                "results": results,
+            },
+        ]
+        with patch("src.ui.tabs.finetuned_tab.run_evaluation", return_value=iter(events)):
+            updates = list(finetuned_ui.handlers["handle_evaluation"]("x"))
+
+        status, table = updates[-1][0], updates[-1][1]
+        assert "評測完成" in status
+        assert "40%" in table and "80%" in table

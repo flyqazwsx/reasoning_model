@@ -7,6 +7,8 @@ Unsloth Thinking Model 微調 Web 應用程式主程式
 import gradio as gr
 import logging
 from pathlib import Path
+from src.services import adapter_service
+from src.ui.tabs.finetuned_tab import create_finetuned_tab
 from src.ui.tabs.setup_tab import create_setup_tab
 from src.ui.tabs.inference_tab import create_inference_tab
 from src.ui import ui_lock
@@ -45,6 +47,13 @@ def create_app() -> gr.Blocks:
     except Exception as e:
         logger.error(f"資料庫初始化失敗: {e}")
         raise
+
+    # 自我修復：成品資料夾已不存在的微調模型不再出現在選單（FR-017）
+    try:
+        cleanup = adapter_service.cleanup_missing()
+        logger.info(cleanup["message"])
+    except Exception as e:
+        logger.error(f"微調模型登錄清理失敗: {e}")
 
     # 檢查 GPU (T014a: GPU 強制檢查)
     gpu_available, gpu_msg = check_gpu_availability()
@@ -98,10 +107,8 @@ def create_app() -> gr.Blocks:
                     gr.Markdown("## 使用 QLoRA 微調模型")
                     gr.Markdown("❌ **訓練不可用**：需要至少 12GB VRAM 的 GPU")
 
-            # Tab 4: 微調模型推論與對比 (US4) - 待實作
-            with gr.Tab("🔍 微調推論對比") as finetuned_inference_tab:
-                gr.Markdown("## 對比基底模型與微調模型的推論結果")
-                gr.Markdown("⚠️ 此功能尚未實作（Phase 6: US4）")
+            # Tab 4: 微調模型推論與對比 (US4) ✅ 已實作
+            finetuned_tab = create_finetuned_tab()
 
             # Tab 5: 推論記錄查看與匯出 - 待實作
             with gr.Tab("📊 推論記錄") as logs_tab:
@@ -116,7 +123,7 @@ def create_app() -> gr.Blocks:
         gr.Markdown(
             """
             ---
-            **MVP 版本** | Phase 3 (US1) ✅ | Phase 4 (US3) ✅ | Phase 5 (US2) ✅ | 其他功能開發中
+            **MVP 版本** | US1 ✅ | US2 ✅ | US3 ✅ | US4 ✅ | 推論記錄頁開發中
             """
         )
 

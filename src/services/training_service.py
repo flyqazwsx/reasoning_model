@@ -28,14 +28,13 @@ from src.config import (
     DEFAULT_TRAINING_HYPERPARAMETERS,
     HYPERPARAMETER_RANGES,
     MAX_VRAM_GB,
-    MODELS_DB_PATH,
     OUTPUTS_DIR,
     SAMPLE_COUNT_DEFAULT,
     SAMPLE_COUNT_MIN,
     TRAINING_JOBS_DB_PATH,
 )
 from src.lib.unsloth_wrapper import load_model_4bit, setup_lora_config
-from src.models.lora_adapter import LoRAAdapter
+from src.services import adapter_service
 from src.services.dataset_service import download_dataset
 from src.services.training_callbacks import ProgressReportCallback
 from src.utils import training_state
@@ -55,11 +54,6 @@ RESUMABLE_STATES = ("interrupted", "stopped")
 def get_training_db_connection():
     """取得訓練任務資料庫連線"""
     return connect_database(TRAINING_JOBS_DB_PATH)
-
-
-def get_models_db_connection():
-    """取得模型資料庫連線"""
-    return connect_database(MODELS_DB_PATH)
 
 
 # ===== 驗證與預檢 =====
@@ -570,84 +564,6 @@ def find_resumable_job() -> Optional[Dict[str, Any]]:
     return None
 
 
-# ===== 登錄微調模型 =====
-
-
-def register_lora_adapter(
-    adapter_id: str,
-    adapter_name: str,
-    base_model_id: str,
-    training_job_id: str,
-    storage_path: str,
-    lora_config: Dict[str, Any],
-    training_stats: Dict[str, Any],
-) -> None:
-    """
-    註冊 LoRA adapter 到資料庫
-
-    Args:
-        adapter_id: Adapter ID
-        adapter_name: Adapter 名稱
-        base_model_id: 基底模型 ID
-        training_job_id: 訓練任務 ID
-        storage_path: 儲存路徑
-        lora_config: LoRA 配置
-        training_stats: 訓練統計資訊
-    """
-    adapter_path = Path(storage_path)
-    file_size_mb = sum(
-        item.stat().st_size for item in adapter_path.rglob("*") if item.is_file()
-    ) / (1024 * 1024)
-
-    adapter = LoRAAdapter(
-        adapter_id=adapter_id,
-        adapter_name=adapter_name,
-        base_model_id=base_model_id,
-        training_job_id=training_job_id,
-        storage_path=storage_path,
-        lora_rank=lora_config.get("lora_rank", 16),
-        lora_alpha=lora_config.get("lora_alpha", 16),
-        lora_dropout=lora_config.get("lora_dropout", 0.05),
-        target_modules=json.dumps(
-            lora_config.get("lora_target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"])
-        ),
-        training_dataset_id=training_stats.get("dataset_id", "unknown"),
-        final_train_loss=training_stats.get("final_train_loss"),
-        best_val_loss=training_stats.get("best_val_loss"),
-        best_epoch=training_stats.get("best_epoch"),
-        total_epochs_trained=training_stats.get("total_epochs", 0),
-        is_early_stopped=training_stats.get("early_stopped", False),
-        created_at=datetime.now(),
-        file_size_mb=file_size_mb,
-        is_available=True,
-    )
-
-    conn = get_models_db_connection()
-    try:
-        conn.execute(
-            """
-            INSERT INTO lora_adapters (
-                adapter_id, adapter_name, base_model_id, training_job_id, storage_path,
-                lora_rank, lora_alpha, lora_dropout, target_modules, training_dataset_id,
-                final_train_loss, best_val_loss, best_epoch, total_epochs_trained,
-                is_early_stopped, created_at, file_size_mb, is_available
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                adapter.adapter_id, adapter.adapter_name, adapter.base_model_id,
-                adapter.training_job_id, adapter.storage_path, adapter.lora_rank,
-                adapter.lora_alpha, adapter.lora_dropout, adapter.target_modules,
-                adapter.training_dataset_id, adapter.final_train_loss, adapter.best_val_loss,
-                adapter.best_epoch, adapter.total_epochs_trained, adapter.is_early_stopped,
-                adapter.created_at.isoformat(), adapter.file_size_mb, adapter.is_available,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    logger.info(f"LoRA adapter 已註冊: {adapter_id}")
-
-
 # ===== 訓練設定與執行 =====
 
 
@@ -864,12 +780,7 @@ def _peak_vram_gb() -> Optional[float]:
     return min(round(torch.cuda.max_memory_allocated() / 1024**3, 2), MAX_VRAM_GB)
 
 
-def _finish_job(
-    job_id: str,
-    model_id: str,
-    hp: Dict[str, Any],
-    outcome: Dict[str, Any],
-) -> Dict[str, Any]:
+def _finish_job(job_id: str, outcome: Dict[str, Any]) -> Dict[str, Any]:
     """依訓練成果更新任務狀態；成功時登錄微調模型，終止時保留檢查點、不登錄。"""
     now = datetime.now().isoformat()
     if outcome.get("stopped"):
@@ -882,34 +793,33 @@ def _finish_job(
         )
 
     stats = outcome["stats"]
-    adapter_id = f"adapter_{job_id}"
-    job = _get_job(job_id) or {}
-    register_lora_adapter(
-        adapter_id=adapter_id,
-        adapter_name=f"{job.get('job_name', job_id)}_adapter",
-        base_model_id=model_id,
-        training_job_id=job_id,
-        storage_path=str(outcome["adapter_dir"]),
-        lora_config=hp,
-        training_stats=stats,
-    )
     status = "early_stopped" if stats.get("early_stopped") else "completed"
     _update_job(
         job_id,
         status=status,
         end_time=now,
-        output_adapter_id=adapter_id,
+        output_adapter_id=f"adapter_{job_id}",
         output_adapter_path=str(outcome["adapter_dir"]),
         best_val_loss=stats.get("best_val_loss"),
         best_epoch=stats.get("best_epoch"),
         early_stopping_triggered=bool(stats.get("early_stopped")),
         peak_vram_gb=_peak_vram_gb(),
     )
+    registered = adapter_service.register_adapter(job_id, training_stats=stats)
+    if registered["status"] != "success":
+        return build_response(
+            "error",
+            f"訓練完成，但登錄微調模型失敗：{registered['message']}",
+            suggestion=registered.get("suggestion", "請查看訓練日誌"),
+            job_id=job_id,
+        )
     return build_response(
         "success",
         "訓練完成，已登錄微調模型",
         job_id=job_id,
-        adapter_id=adapter_id,
+        adapter_id=registered["adapter_id"],
+        adapter_choices=registered["adapter_choices"],
+        infer_button_interactive=registered["infer_button_interactive"],
         training_stats=stats,
     )
 
@@ -970,8 +880,7 @@ def _run_job(
             resume_from_checkpoint,
             report,
         )
-        merged = {**DEFAULT_TRAINING_HYPERPARAMETERS, **hyperparameters}
-        return _finish_job(job_id, model_id, merged, outcome)
+        return _finish_job(job_id, outcome)
     except Exception as error:  # noqa: BLE001 - 任何訓練失敗都要轉成回應，不讓應用程式崩潰
         return _fail_job(job_id, error, log)
     finally:
