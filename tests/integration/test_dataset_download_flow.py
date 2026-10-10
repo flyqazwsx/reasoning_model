@@ -89,23 +89,24 @@ class TestDatasetDownloadFlow:
     @patch('src.services.dataset_service.load_dataset')
     def test_download_dataset_with_metadata(self, mock_load_dataset):
         """測試下載資料集並獲取元資料"""
-        # Mock 資料集
         mock_train = Dataset.from_dict({
             "instruction": [f"Q{i}" for i in range(50)],
             "input": [""] * 50,
             "output": [f"A{i}" for i in range(50)],
         })
-        mock_train.num_rows = 50
-        mock_train.column_names = ["instruction", "input", "output"]
-        mock_load_dataset.return_value = {"train": mock_train}
+        mock_streaming = Mock()
+        mock_streaming.take = Mock(return_value=[{"instruction": "Q0", "input": "", "output": "A0"}])
 
-        # 步驟 1: 獲取元資料
+        # get_dataset_info 先以 streaming 讀取一筆，再載入完整資料集計算筆數
+        mock_load_dataset.side_effect = [mock_streaming, mock_train]
         info = get_dataset_info("test/dataset")
 
         assert info["num_rows"] == 50
         assert "instruction" in info["columns"]
 
         # 步驟 2: 下載資料集
+        mock_load_dataset.side_effect = None
+        mock_load_dataset.return_value = {"train": mock_train}
         dataset = download_dataset(dataset_id="test/dataset")
 
         assert len(dataset["train"]) == 50
@@ -230,3 +231,53 @@ class TestDatasetDownloadFlow:
         assert dataset1 is not None
         assert dataset2 is not None
         assert mock_load_dataset.call_count == 2
+
+
+class TestDatasetDownloadProgressAndCache:
+    """US1：進度回報與快取重用（T024）"""
+
+    @pytest.fixture(autouse=True)
+    def no_network(self):
+        from src.utils import download_control
+
+        download_control.reset()
+        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
+            yield
+        download_control.reset()
+
+    @patch('src.services.dataset_service.load_dataset')
+    def test_second_download_reuses_same_cache_location(self, mock_load_dataset, tmp_path):
+        """第二次呼叫使用相同快取位置且不強制重新下載（由 datasets 套件重用快取）"""
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.return_value = Dataset.from_dict({
+            "instruction": ["Q"], "input": [""], "output": ["A"],
+        })
+
+        first = on_dataset_download("test/dataset", sample_count=100, cache_dir=str(tmp_path))
+        second = on_dataset_download("test/dataset", sample_count=100, cache_dir=str(tmp_path))
+
+        assert first["status"] == "success"
+        assert second["status"] == "success"
+        first_kwargs, second_kwargs = (call.kwargs for call in mock_load_dataset.call_args_list)
+        assert first_kwargs["cache_dir"] == second_kwargs["cache_dir"] == str(tmp_path)
+        assert "download_mode" not in second_kwargs  # 不得強制重新下載
+
+    @patch('src.services.dataset_service.load_dataset')
+    def test_progress_callback_called_at_least_once(self, mock_load_dataset):
+        """下載進度 callback 至少被呼叫一次，並以 1.0 結束"""
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.return_value = Dataset.from_dict({
+            "instruction": ["Q"], "input": [""], "output": ["A"],
+        })
+        updates = []
+
+        response = on_dataset_download(
+            "test/dataset",
+            progress_callback=lambda fraction, text: updates.append((fraction, text)),
+        )
+
+        assert response["status"] == "success"
+        assert len(updates) >= 1
+        assert updates[-1][0] == 1.0

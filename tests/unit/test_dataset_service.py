@@ -205,3 +205,185 @@ class TestDatasetDownload:
 
         with pytest.raises(ConnectionError):
             download_dataset(dataset_id="test/dataset")
+
+
+# ===== 002：US1 公開專用下載、樣本數、思考過程欄位（T022） =====
+
+GATED_MESSAGE = "此項目需授權，本應用程式不支援"
+
+
+def _instruction_dataset(rows: int = 5) -> Dataset:
+    return Dataset.from_dict({
+        "instruction": [f"Q{i}" for i in range(rows)],
+        "input": [""] * rows,
+        "output": [f"A{i}" for i in range(rows)],
+    })
+
+
+@pytest.fixture
+def clean_download_state():
+    from src.utils import download_control
+
+    download_control.reset()
+    yield
+    download_control.reset()
+
+
+class TestDetectReasoningField:
+    """測試思考過程欄位偵測"""
+
+    @pytest.mark.parametrize("columns", [
+        ["question", "thinking", "answer"],
+        ["source", "rationale", "target"],
+        ["prompt", "reasoning", "response"],
+    ])
+    def test_detects_reasoning_columns(self, columns):
+        from src.services.dataset_service import detect_reasoning_field
+
+        assert detect_reasoning_field(columns) is True
+
+    def test_plain_columns_have_no_reasoning_field(self):
+        from src.services.dataset_service import detect_reasoning_field
+
+        assert detect_reasoning_field(["instruction", "input", "output"]) is False
+
+
+class TestSupportedFormats:
+    """測試欄位是否可對應支援的格式"""
+
+    @pytest.mark.parametrize("columns", [
+        ["instruction", "input", "output"],
+        ["prompt", "response"],
+        ["question", "answer"],
+        ["source", "rationale", "target"],
+        ["messages"],
+    ])
+    def test_supported(self, columns):
+        from src.services.dataset_service import is_supported_columns
+
+        assert is_supported_columns(columns) is True
+
+    @pytest.mark.parametrize("columns", [["foo", "bar"], ["text"], []])
+    def test_unsupported(self, columns):
+        from src.services.dataset_service import is_supported_columns
+
+        assert is_supported_columns(columns) is False
+
+
+class TestDownloadDatasetSampleCount:
+    """測試以 train[:N] 讀取"""
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_sample_count_uses_sliced_split(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.return_value = _instruction_dataset(5)
+
+        result = download_dataset("test/dataset", sample_count=500)
+
+        assert mock_load_dataset.call_args.kwargs["split"] == "train[:500]"
+        assert "train" in result
+        assert len(result["train"]) == 5
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_without_sample_count_loads_full_split(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.return_value = {"train": _instruction_dataset(5)}
+
+        download_dataset("test/dataset")
+
+        assert "split" not in mock_load_dataset.call_args.kwargs
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_unsupported_columns_are_rejected(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.return_value = {"train": Dataset.from_dict({"foo": ["a"], "bar": ["b"]})}
+
+        with pytest.raises(ValueError, match="無法對應"):
+            download_dataset("test/weird-columns")
+
+    @pytest.mark.parametrize("error", [
+        Exception("401 Client Error: Unauthorized"),
+        Exception("403 Forbidden: gated dataset"),
+    ])
+    @patch("src.services.dataset_service.load_dataset")
+    def test_gated_dataset_raises_unsupported_error(self, mock_load_dataset, error, clean_download_state):
+        from src.utils.download_control import GatedAccessError
+
+        mock_load_dataset.side_effect = error
+
+        with pytest.raises(GatedAccessError, match="需授權"):
+            download_dataset("org/gated-dataset")
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_never_passes_token(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.return_value = {"train": _instruction_dataset(2)}
+
+        download_dataset("test/dataset")
+
+        assert "token" not in mock_load_dataset.call_args.kwargs
+        assert "use_auth_token" not in mock_load_dataset.call_args.kwargs
+
+
+class TestOnDatasetDownload:
+    """測試資料集下載事件處理（回傳 {status, message, ...}）"""
+
+    @pytest.fixture(autouse=True)
+    def no_network(self):
+        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
+            yield
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_success_reports_samples_and_reasoning_field(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.return_value = Dataset.from_dict({
+            "question": ["Q1", "Q2"],
+            "thinking": ["t1", "t2"],
+            "answer": ["A1", "A2"],
+        })
+        from src.services.dataset_service import on_dataset_download
+
+        response = on_dataset_download("org/reasoning", sample_count=100)
+
+        assert response["status"] == "success"
+        assert response["dataset_info"]["num_samples"] == 2
+        assert response["dataset_info"]["has_reasoning_field"] is True
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_unsupported_columns_return_error(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.return_value = {"train": Dataset.from_dict({"foo": ["a"]})}
+        from src.services.dataset_service import on_dataset_download
+
+        response = on_dataset_download("org/weird")
+
+        assert response["status"] == "error"
+        assert "無法對應" in response["message"]
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_gated_returns_unsupported_message(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.side_effect = Exception("401 Client Error: Unauthorized")
+        from src.services.dataset_service import on_dataset_download
+
+        response = on_dataset_download("org/gated")
+
+        assert response["status"] == "error"
+        assert response["message"] == GATED_MESSAGE
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_insufficient_disk_space_returns_error_before_download(self, mock_load_dataset, clean_download_state):
+        from src.services.dataset_service import on_dataset_download
+
+        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=20.0), \
+                patch("src.services.dataset_service.check_disk_space", return_value=(False, 5.0)):
+            response = on_dataset_download("org/big")
+
+        assert response["status"] == "error"
+        assert "磁碟空間不足" in response["message"]
+        assert "GB" in response["message"]
+        mock_load_dataset.assert_not_called()
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_network_error_returns_retry_hint(self, mock_load_dataset, clean_download_state):
+        mock_load_dataset.side_effect = ConnectionError("offline")
+        from src.services.dataset_service import on_dataset_download
+
+        response = on_dataset_download("org/dataset")
+
+        assert response["status"] == "error"
+        assert "網路" in response["message"]
+        assert "重新" in response["message"]

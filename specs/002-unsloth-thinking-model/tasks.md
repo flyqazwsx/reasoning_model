@@ -67,13 +67,13 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 測試（先寫，先確認失敗）⚠️
 
-- [ ] T019 [P] [US1] 新增 `tests/unit/test_hardware_service.py`：mock `torch.cuda`，驗證有卡回傳名稱／總量／可用量；無 CUDA 回傳 `cuda_available=False` 與 0
-- [ ] T020 [P] [US1] 新增 `tests/unit/test_recommend_service.py`：`fits = estimate <= free * 0.9`；VRAM 不足時 `fits=False`；無 CUDA 時模型清單為空；推薦資料集含 `has_reasoning_field`
-- [ ] T021 [P] [US1] 修改 `tests/unit/test_model_service.py`：新增案例 — 自訂代號超 VRAM → `warning` 且附替代；`GatedRepoError`／401／403 → `error` 且訊息為「此項目需授權，本應用程式不支援」；呼叫 `snapshot_download` 時**不得**帶 `token` 參數；網路中斷 → 錯誤訊息含重試建議；磁碟剩餘空間不足 → 下載前即回傳 `error` 並說明所需空間（沿用 `check_disk_space`）
-- [ ] T022 [P] [US1] 修改 `tests/unit/test_dataset_service.py`：新增案例 — 以 `train[:N]` 讀取；偵測 `has_reasoning_field`；欄位無法對應任何支援格式 → 拒絕；需授權資料集 → 同上錯誤訊息；磁碟空間不足 → 同上
-- [ ] T024a [P] [US1] 新增 `tests/unit/test_download_cancel.py`：下載中觸發取消 → 停止後續下載、回傳 `warning`「已取消」、已下載的部分保留可續傳；取消後可重新下載；未在下載時取消 → 忽略（憲章 IV：長操作可取消）
-- [ ] T023 [P] [US1] 新增 `tests/contract/test_gradio_events_002.py` 的 E-01～E-03 與 E-11（取消下載，含無進行中下載的情形）：回應含 `status`／`message`、`status` 值合法、訊息為繁體中文、錯誤含下一步
-- [ ] T024 [P] [US1] 修改 `tests/integration/test_model_download_flow.py`、`test_dataset_download_flow.py`：第二次呼叫不重新下載（mock 驗證）；下載進度 callback 至少被呼叫一次
+- [X] T019 [P] [US1] 新增 `tests/unit/test_hardware_service.py`：mock `torch.cuda`，驗證有卡回傳名稱／總量／可用量；無 CUDA 回傳 `cuda_available=False` 與 0
+- [X] T020 [P] [US1] 新增 `tests/unit/test_recommend_service.py`：`fits = estimate <= free * 0.9`；VRAM 不足時 `fits=False`；無 CUDA 時模型清單為空；推薦資料集含 `has_reasoning_field`
+- [X] T021 [P] [US1] 修改 `tests/unit/test_model_service.py`：新增案例 — 自訂代號超 VRAM → `warning` 且附替代；`GatedRepoError`／401／403 → `error` 且訊息為「此項目需授權，本應用程式不支援」；呼叫 `snapshot_download` 時**不得**帶 `token` 參數；網路中斷 → 錯誤訊息含重試建議；磁碟剩餘空間不足 → 下載前即回傳 `error` 並說明所需空間（沿用 `check_disk_space`）
+- [X] T022 [P] [US1] 修改 `tests/unit/test_dataset_service.py`：新增案例 — 以 `train[:N]` 讀取；偵測 `has_reasoning_field`；欄位無法對應任何支援格式 → 拒絕；需授權資料集 → 同上錯誤訊息；磁碟空間不足 → 同上
+- [X] T024a [P] [US1] 新增 `tests/unit/test_download_cancel.py`：下載中觸發取消 → 停止後續下載、回傳 `warning`「已取消」、已下載的部分保留可續傳；取消後可重新下載；未在下載時取消 → 忽略（憲章 IV：長操作可取消）
+- [X] T023 [P] [US1] 新增 `tests/contract/test_gradio_events_002.py` 的 E-01～E-03 與 E-11（取消下載，含無進行中下載的情形）：回應含 `status`／`message`、`status` 值合法、訊息為繁體中文、錯誤含下一步
+- [X] T024 [P] [US1] 修改 `tests/integration/test_model_download_flow.py`、`test_dataset_download_flow.py`：第二次呼叫不重新下載（mock 驗證）；下載進度 callback 至少被呼叫一次
 
 ### 實作
 

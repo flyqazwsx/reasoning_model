@@ -1,179 +1,160 @@
 """
 模型下載流程整合測試
 
-測試完整的模型下載、快取、驗證流程
+測試完整的模型下載、快取重用、進度回報與驗證流程（以 mock 取代網路與磁碟）
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, Mock
+
+from src.services import model_service
 from src.services.model_service import (
     download_model,
-    validate_model_size,
     get_model_info,
+    validate_model_size,
 )
-from src.config import CACHE_DIR
+from src.utils import download_control
 
 
+@pytest.fixture(autouse=True)
+def reset_download_state():
+    download_control.reset()
+    yield
+    download_control.reset()
+
+
+@pytest.fixture
+def snapshot_dir(tmp_path):
+    """模擬 snapshot_download 下載完成的資料夾"""
+    folder = tmp_path / "snapshots" / "abc123"
+    folder.mkdir(parents=True)
+    (folder / "config.json").write_text("{}", encoding="utf-8")
+    return folder
+
+
+@pytest.fixture
+def common_patches():
+    with patch.object(model_service, "check_disk_space", return_value=(True, 100.0)), \
+            patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}), \
+            patch.object(model_service.time, "sleep"):
+        yield
+
+
+@pytest.mark.usefixtures("common_patches")
 class TestModelDownloadFlow:
     """測試模型下載完整流程"""
 
-    @patch('src.services.model_service.load_model_4bit')
-    def test_download_model_with_cache(self, mock_load_model, tmp_path):
-        """測試模型下載並快取到本機"""
-        # Mock 模型載入
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
+    def test_download_then_reuse_cache_without_redownload(self, snapshot_dir, tmp_path):
+        """第二次呼叫直接使用本機快取，不再呼叫 snapshot_download（SC-006）"""
+        with patch.object(model_service, "snapshot_download", return_value=str(snapshot_dir)) as mock_download:
+            first = download_model("test/model-7b", cache_dir=str(tmp_path))
+            second = download_model("test/model-7b", cache_dir=str(tmp_path))
 
-        cache_dir = tmp_path / "cache"
-        cache_dir.mkdir()
+        assert first["status"] == "success"
+        assert second["status"] == "success"
+        assert mock_download.call_count == 1
+        assert second["download_info"]["from_cache"] is True
+        assert second["download_info"]["cache_path"] == str(snapshot_dir)
 
-        # 第一次下載
-        model1, tokenizer1 = download_model(
-            model_id="test/model-7b",
-            cache_dir=str(cache_dir)
-        )
+    def test_cache_is_ignored_when_snapshot_folder_was_removed(self, snapshot_dir, tmp_path):
+        """快取資料夾被刪除後，重新下載而不是誤報已就緒"""
+        with patch.object(model_service, "snapshot_download", return_value=str(snapshot_dir)) as mock_download:
+            download_model("test/model-7b", cache_dir=str(tmp_path))
+            (snapshot_dir / "config.json").unlink()
+            snapshot_dir.rmdir()
+            snapshot_dir.mkdir()  # 資料夾存在但內容為空 → 視為未完成
 
-        assert model1 is not None
-        assert tokenizer1 is not None
+            second = download_model("test/model-7b", cache_dir=str(tmp_path))
 
-        # 驗證 mock 被呼叫
-        assert mock_load_model.call_count == 1
+        assert second["status"] == "success"
+        assert mock_download.call_count == 2
 
-        # 第二次下載（應該從快取載入）
-        model2, tokenizer2 = download_model(
-            model_id="test/model-7b",
-            cache_dir=str(cache_dir)
-        )
+    def test_cancelled_download_is_not_marked_as_cached(self, tmp_path):
+        """取消的下載不得被標記為已完成"""
+        def cancel_midway(**kwargs):
+            model_service.cancel_download()
+            kwargs["tqdm_class"](total=2).update(1)
 
-        # 注意：實際快取邏輯由 Hugging Face 處理
-        # 這裡主要測試函數可以被重複呼叫
-        assert model2 is not None
+        with patch.object(model_service, "snapshot_download", side_effect=cancel_midway):
+            first = download_model("test/model-7b", cache_dir=str(tmp_path))
 
-    @patch('src.services.model_service.HfApi')
-    @patch('src.services.model_service.load_model_4bit')
-    def test_download_model_with_validation(self, mock_load_model, mock_hf_api):
-        """測試下載前驗證模型大小"""
-        # Mock HF API 回應
-        mock_api_instance = Mock()
-        mock_api_instance.model_info.return_value = Mock(
+        with patch.object(model_service, "snapshot_download", return_value=str(tmp_path)) as mock_download:
+            second = download_model("test/model-7b", cache_dir=str(tmp_path))
+
+        assert first["status"] == "warning"
+        assert second["status"] == "success"
+        mock_download.assert_called_once()
+
+    @patch("src.services.model_service.HfApi")
+    def test_download_with_validation(self, mock_hf_api, snapshot_dir):
+        """下載前先驗證模型大小，再下載"""
+        mock_hf_api.return_value.model_info.return_value = Mock(
             modelId="test/model-7b",
-            safetensors=Mock(total=7_000_000_000)  # 7B parameters ≈ 7GB in 4-bit
+            safetensors=Mock(total=7_000_000_000),
         )
-        mock_hf_api.return_value = mock_api_instance
 
-        # Mock 模型載入
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
+        is_valid, _ = validate_model_size(model_id="test/model-7b", estimated_vram_gb=7.0)
+        with patch.object(model_service, "snapshot_download", return_value=str(snapshot_dir)):
+            response = download_model(model_id="test/model-7b")
 
-        # 步驟 1: 驗證模型大小
-        is_valid, msg = validate_model_size(
-            model_id="test/model-7b",
-            estimated_vram_gb=7.0
-        )
         assert is_valid is True
+        assert response["status"] == "success"
 
-        # 步驟 2: 下載模型
-        model, tokenizer = download_model(model_id="test/model-7b")
-
-        assert model is not None
-        assert tokenizer is not None
-
-    @patch('src.services.model_service.load_model_4bit')
-    def test_download_model_size_exceeds_limit(self, mock_load_model):
-        """測試超過 12GB 限制的模型被拒絕"""
-        # 步驟 1: 驗證應該失敗
-        is_valid, msg = validate_model_size(
-            model_id="test/model-70b",
-            estimated_vram_gb=35.0  # 70B 模型約 35GB
-        )
+    def test_download_model_size_exceeds_limit(self):
+        """超過 12GB 限制的模型驗證失敗"""
+        is_valid, msg = validate_model_size(model_id="test/model-70b", estimated_vram_gb=35.0)
 
         assert is_valid is False
         assert "12" in msg
 
-        # 步驟 2: 不應該下載（手動阻止）
-        # 實際應用中，UI 層會根據驗證結果阻止下載
-
-    @patch('src.services.model_service.load_model_4bit')
-    def test_download_model_with_progress_tracking(self, mock_load_model, tmp_path):
-        """測試下載過程的進度追蹤"""
-        # Mock 模型載入，模擬下載進度
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
-
-        # 使用回調函數追蹤進度
+    def test_download_reports_progress_at_least_once(self, snapshot_dir):
+        """下載進度 callback 至少被呼叫一次，並以 1.0 結束"""
         progress_updates = []
 
-        def progress_callback(progress: float):
-            progress_updates.append(progress)
+        def fake_snapshot_download(**kwargs):
+            bar = kwargs["tqdm_class"](total=3, desc="Fetching 3 files")
+            for _ in range(3):
+                bar.update(1)
+            return str(snapshot_dir)
 
-        model, tokenizer = download_model(
-            model_id="test/model",
-            cache_dir=str(tmp_path),
-            progress_callback=progress_callback
-        )
+        with patch.object(model_service, "snapshot_download", side_effect=fake_snapshot_download):
+            response = download_model(
+                model_id="test/model",
+                progress_callback=lambda fraction, text: progress_updates.append((fraction, text)),
+            )
 
-        assert model is not None
-        # 注意：實際進度追蹤需要在 model_service 中實作
+        assert response["status"] == "success"
+        assert len(progress_updates) >= 1
+        assert progress_updates[-1][0] == 1.0
 
-    @patch('src.services.model_service.load_model_4bit')
-    def test_download_model_resume_after_failure(self, mock_load_model):
-        """測試下載失敗後重試（斷點續傳）"""
-        # 第一次嘗試失敗
-        mock_load_model.side_effect = ConnectionError("Network interrupted")
+    def test_resume_after_network_failure(self, snapshot_dir):
+        """下載失敗後再次呼叫可重新下載（Hugging Face 自動續傳）"""
+        with patch.object(model_service, "snapshot_download", side_effect=ConnectionError("lost")):
+            failed = download_model(model_id="test/model")
 
-        with pytest.raises(ConnectionError):
-            download_model(model_id="test/model")
+        with patch.object(model_service, "snapshot_download", return_value=str(snapshot_dir)):
+            retried = download_model(model_id="test/model")
 
-        # 重置 mock，第二次成功
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_load_model.side_effect = None
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
+        assert failed["status"] == "error"
+        assert retried["status"] == "success"
 
-        # 重試下載
-        model, tokenizer = download_model(model_id="test/model")
 
-        assert model is not None
-        # Hugging Face 自動支援斷點續傳
+class TestModelMetadataFlow:
+    """測試下載前取得模型元資料"""
 
-    @patch('src.services.model_service.HfApi')
-    def test_download_model_with_metadata_fetch(self, mock_hf_api):
-        """測試下載前獲取模型元資料"""
-        # Mock HF API
-        mock_api_instance = Mock()
-        mock_api_instance.model_info.return_value = Mock(
+    @patch("src.services.model_service.HfApi")
+    def test_metadata_fetch(self, mock_hf_api):
+        mock_hf_api.return_value.model_info.return_value = Mock(
             modelId="Qwen/Qwen2.5-7B-Instruct",
             downloads=50000,
             likes=500,
-            tags=["text-generation", "instruct"]
+            tags=["text-generation", "instruct"],
+            safetensors=None,
         )
-        mock_hf_api.return_value = mock_api_instance
 
-        # 獲取元資料
         info = get_model_info("Qwen/Qwen2.5-7B-Instruct")
 
         assert info["model_id"] == "Qwen/Qwen2.5-7B-Instruct"
         assert info["downloads"] == 50000
         assert "text-generation" in info.get("tags", [])
-
-    @patch('src.services.model_service.load_model_4bit')
-    def test_download_model_creates_cache_directory(self, mock_load_model, tmp_path):
-        """測試自動建立快取目錄"""
-        cache_dir = tmp_path / "nonexistent" / "cache"
-
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
-
-        # 下載時自動建立目錄
-        model, tokenizer = download_model(
-            model_id="test/model",
-            cache_dir=str(cache_dir)
-        )
-
-        assert model is not None
-        # 實際目錄建立由 Hugging Face 處理

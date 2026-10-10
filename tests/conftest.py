@@ -155,3 +155,11 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "contract: 契約測試")
     config.addinivalue_line("markers", "slow: 執行時間較長的測試")
     config.addinivalue_line("markers", "gpu: 需要 GPU 的測試")
+
+
+@pytest.fixture(autouse=True)
+def isolated_download_markers(tmp_path, monkeypatch):
+    """下載完成標記改放暫存資料夾，避免測試之間（或污染 cache/）互相影響"""
+    import src.services.model_service as model_service
+
+    monkeypatch.setattr(model_service, "DOWNLOAD_MARKERS_DIR", tmp_path / "download-markers", raising=False)
