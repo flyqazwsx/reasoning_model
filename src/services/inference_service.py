@@ -21,7 +21,7 @@ from src.config import CACHE_DIR, INFERENCE_LOGS_DB_PATH
 from src.lib.unsloth_wrapper import enable_inference_mode, load_adapter_4bit, load_model_4bit
 from src.services import adapter_service
 from src.services.model_service import find_cached_model
-from src.utils import inference_state, training_state
+from src.utils import benchmark, inference_state, training_state
 from src.utils.database_init import connect_database
 from src.utils.gpu_monitor import clear_gpu_cache
 from src.utils.response import build_response
@@ -118,7 +118,11 @@ def load_model_with_cache(model_id: str) -> Tuple[Any, Any]:
         return _model_cache[model_id]
 
     logger.info(f"載入模型: {model_id}")
+    load_started = time.time()
     model, tokenizer = load_model_4bit(model_id=model_id, load_in_4bit=True)
+    benchmark.log_benchmark(
+        logger, benchmark.MODEL_LOAD_TIME, time.time() - load_started, model=model_id
+    )
 
     # 啟用推論模式（優化速度）
     model = enable_inference_mode(model)
@@ -145,7 +149,14 @@ def load_finetuned_with_cache(adapter: Dict[str, Any]) -> Tuple[Any, Any]:
         return _model_cache[key]
 
     logger.info(f"載入微調模型: {adapter['adapter_id']}（基底 {adapter['base_model_id']}）")
+    load_started = time.time()
     model, tokenizer = load_adapter_4bit(adapter["base_model_id"], adapter["storage_path"])
+    benchmark.log_benchmark(
+        logger,
+        benchmark.MODEL_LOAD_TIME,
+        time.time() - load_started,
+        model=adapter["adapter_id"],
+    )
     model = enable_inference_mode(model)
     _model_cache[key] = (model, tokenizer)
     return model, tokenizer
@@ -324,6 +335,17 @@ def _collect_stats(
     }
 
 
+def _log_inference_benchmark(
+    model_id: str, stats: Dict[str, Any], first_token_sec: Optional[float]
+) -> None:
+    """把本次推論的首 token 延遲、生成速度與 VRAM 峰值寫入日誌。"""
+    log = benchmark.log_benchmark
+    log(logger, benchmark.FIRST_TOKEN_LATENCY, first_token_sec, model=model_id)
+    log(logger, benchmark.TOKENS_PER_SECOND, stats["tokens_per_second"], model=model_id)
+    if torch.cuda.is_available():
+        log(logger, benchmark.VRAM_PEAK, stats["vram_used_gb"], model=model_id, stage="inference")
+
+
 def _save_record(
     model_id: str,
     prompt: str,
@@ -365,12 +387,16 @@ def _generate_response(
         torch.cuda.reset_peak_memory_stats()
     gen_kwargs = _build_generation_kwargs(tokenizer, params)
     started, text = time.time(), ""
+    first_token_sec: Optional[float] = None
     for text in _generate_stream(model, tokenizer, inputs, gen_kwargs):
+        if first_token_sec is None:
+            first_token_sec = time.time() - started
         thinking, answer, done = split_thinking(text)
         yield _chunk("success", "生成中…" if done else "思考中…", thinking, answer)
 
     thinking, answer, _ = split_thinking(text)
     stats = _collect_stats(tokenizer, inputs, text, max(time.time() - started, 1e-6))
+    _log_inference_benchmark(model_id, stats, first_token_sec)
     if save:
         _save_record(model_id, prompt, text, (thinking, answer), stats, params, record_meta)
     message = f"推論完成（{stats['tokens_per_second']:.1f} tokens/s）"

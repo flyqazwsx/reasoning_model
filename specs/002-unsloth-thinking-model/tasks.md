@@ -170,15 +170,15 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ## Phase 7: Polish 與跨功能
 
-- [ ] T065 [P] 新增 `tests/e2e/test_full_loop.py`（`@pytest.mark.e2e` + `gpu`）：以 Playwright 操作 Gradio，走完「下載→基礎推論→小樣本訓練→按鈕解鎖→對照」；另以參數化重複完整訓練 3 次，三次皆成功（驗證 SC-002）；並計算從開啟網頁到模型與資料集就緒的操作步驟數 ≤ 5（驗證 SC-001）
-- [ ] T066 [P] 新增 `tests/unit/test_no_secrets.py`：掃描日誌輸出與 `src/` 確認不含 `HF_TOKEN`、`hf_` 開頭字串
-- [ ] T067 [P] 建立效能基準：於日誌記錄模型載入時間、首 token 延遲、tokens/s、單步訓練時間、VRAM 峰值；新增 `tests/unit/test_benchmark_logging.py`
-- [ ] T068 [P] 新增 UI 回應測試：非模型互動（切換、查詢清單）p95 < 200ms（以服務層函式計時）
-- [ ] T069 更新 `README.md`（標準格式：簡介、需求、安裝、使用、測試、專案結構、授權）與 `CHANGELOG.md`
-- [ ] T070 依 `quickstart.md` 在乾淨環境完整走一遍，記錄安裝時間（目標 30 分鐘內），修正文件與實際差異
-- [ ] T071 [P] 修正 `CLAUDE.md` 與 `specs/001-unsloth-thinking-model/` 中與 002 衝突的敘述（完整資料集、`HF_TOKEN`），並註記 001 已由 002 擴充
-- [ ] T072 執行品質門檻：`black --check src/ tests/`、`ruff check src/ tests/`、`mypy src/`、`pytest tests/ --cov=src`（覆蓋率 ≥ 90%）；複雜度 > 10 或函式 > 40 行者重構
-- [ ] T073 檢視是否有可刪除的重複程式或未使用的程式（憲章 DRY／YAGNI），並以測試保護後清理
+- [x] T065 [P] 新增 `tests/e2e/test_full_loop.py`（`@pytest.mark.e2e` + `gpu`）：以 Playwright 操作 Gradio，走完「下載→基礎推論→小樣本訓練→按鈕解鎖→對照」；另以參數化重複完整訓練 3 次，三次皆成功（驗證 SC-002）；並計算從開啟網頁到模型與資料集就緒的操作步驟數 ≤ 5（驗證 SC-001）
+- [x] T066 [P] 新增 `tests/unit/test_no_secrets.py`：掃描日誌輸出與 `src/` 確認不含 `HF_TOKEN`、`hf_` 開頭字串
+- [x] T067 [P] 建立效能基準：於日誌記錄模型載入時間、首 token 延遲、tokens/s、單步訓練時間、VRAM 峰值；新增 `tests/unit/test_benchmark_logging.py`
+- [x] T068 [P] 新增 UI 回應測試：非模型互動（切換、查詢清單）p95 < 200ms（以服務層函式計時）
+- [x] T069 更新 `README.md`（標準格式：簡介、需求、安裝、使用、測試、專案結構、授權）與 `CHANGELOG.md`
+- [ ] T070 依 `quickstart.md` 在乾淨環境完整走一遍，記錄安裝時間（目標 30 分鐘內），修正文件與實際差異（需 Ubuntu／WSL2 與 GPU，待驗證）
+- [x] T071 [P] 修正 `CLAUDE.md` 與 `specs/001-unsloth-thinking-model/` 中與 002 衝突的敘述（完整資料集、`HF_TOKEN`），並註記 001 已由 002 擴充
+- [ ] T072 執行品質門檻：`black --check src/ tests/`、`ruff check src/ tests/`、`mypy src/`、`pytest tests/ --cov=src`（覆蓋率 ≥ 90%）；複雜度 > 10 或函式 > 40 行者重構（2026-10-10：覆蓋率 90.2% 達標；black 30 檔、ruff 178 項、mypy 12 項為既有舊檔債務，待使用者同意後處理）
+- [x] T073 檢視是否有可刪除的重複程式或未使用的程式（憲章 DRY／YAGNI），並以測試保護後清理（2026-10-10：已移除未使用的 `utils/checkpoint.py`、`utils/storage.py`、`models/lora_adapter.py`）
 
 ---
 

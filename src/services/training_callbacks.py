@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Optional
 
 from transformers import TrainerCallback
 
-from src.utils import training_state
+from src.utils import benchmark, training_state
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class ProgressReportCallback(TrainerCallback):
         self.clock = clock
         self._started_at: Optional[float] = None
         self._last_loss: Optional[float] = None
+        self._avg_step_sec: Optional[float] = None
 
     def on_train_begin(self, args: Any, state: Any, control: Any, **kwargs: Any) -> None:
         """記錄開始時間，作為 ETA 推估基準。"""
@@ -59,6 +60,7 @@ class ProgressReportCallback(TrainerCallback):
             self._last_loss = float(logs["loss"])
         label = "loss" if "loss" in logs else "eval_loss"
         self._emit(state, f"{label}={float(logs[label]):.4f}")
+        benchmark.log_benchmark(logger, benchmark.TRAIN_STEP_TIME, self._avg_step_sec)
 
     def on_step_end(self, args: Any, state: Any, control: Any, **kwargs: Any) -> None:
         """每個 step 檢查終止旗標；有要求就停止並儲存檢查點，否則回報目前進度。"""
@@ -94,4 +96,5 @@ class ProgressReportCallback(TrainerCallback):
         if self._started_at is None or step <= 0 or total <= 0:
             return None
         elapsed = self.clock() - self._started_at
+        self._avg_step_sec = elapsed / step
         return round(elapsed / step * max(total - step, 0))

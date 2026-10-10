@@ -621,7 +621,7 @@ git push origin feature/your-feature-name
 # Hugging Face 配置
 HF_HOME=/path/to/cache  # 自訂快取目錄
 HF_ENDPOINT=https://huggingface.co  # 或使用鏡像
-HF_TOKEN=your_token_here  # 用於存取私有模型
+# HF_TOKEN：002 起僅支援公開模型與資料集，不需要也不讀取權杖，請勿設定
 
 # CUDA 配置
 CUDA_VISIBLE_DEVICES=0  # 指定使用的 GPU

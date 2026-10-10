@@ -2,7 +2,9 @@
 
 **Feature Branch**: `001-unsloth-thinking-model`
 **Created**: 2025-10-08
-**Status**: Draft
+**Status**: Draft（已由 002 擴充）
+
+> **002 擴充註記（2026-10-10）**：本規格已由 `specs/002-unsloth-thinking-model/` 擴充。與下列項目衝突時以 002 為準：訓練可指定使用筆數（不再限定完整資料集）、僅支援公開模型與資料集（不使用 `HF_TOKEN`）、新增硬體偵測與推薦、微調模型登錄與對照評測。
 **Input**: User description: "建立本機 Unsloth Thinking Model QLoRA 微調 Web 應用程式，支援 12GB VRAM 硬體限制"
 
 ## Clarifications
@@ -11,7 +13,7 @@
 
 - Q: 在訓練過程中斷（使用者意外關閉或系統崩潰）的情況下，系統應如何處理已完成的訓練進度？ → A: 系統自動保存訓練 checkpoint（每 N 個 epoch），中斷後可從最近的 checkpoint 恢復訓練
 - Q: 推論記錄（Inference Record）的儲存和使用方式應該如何設計？ → A: 推論記錄持久化到本機檔案，使用者可在介面上查看歷史推論記錄並匯出
-- Q: 在選擇訓練資料集後，使用者是否需要能夠選擇資料集的子集或樣本數量進行訓練？ → A: 使用完整資料集進行訓練，不支援子集選擇
+- Q: 在選擇訓練資料集後，使用者是否需要能夠選擇資料集的子集或樣本數量進行訓練？ → A: 使用完整資料集進行訓練，不支援子集選擇（**002 已變更**：可指定使用筆數，預設 2,000）
 - Q: 資料集的驗證分割（validation split）在訓練過程中應如何使用？ → A: 使用驗證集進行早停（early stopping），當驗證損失不再改善時自動停止訓練
 - Q: 使用者上傳自訂資料集時，系統應支援哪些檔案格式和欄位結構？ → A: 僅支援從 Hugging Face Datasets ID 下載，不支援本機檔案上傳
 

@@ -37,7 +37,7 @@ from src.lib.unsloth_wrapper import load_model_4bit, setup_lora_config
 from src.services import adapter_service
 from src.services.dataset_service import download_dataset
 from src.services.training_callbacks import ProgressReportCallback
-from src.utils import training_state
+from src.utils import benchmark, training_state
 from src.utils.database_init import connect_database
 from src.utils.gpu_monitor import clear_gpu_cache
 from src.utils.logger import close_training_logger, get_training_logger
@@ -794,6 +794,8 @@ def _finish_job(job_id: str, outcome: Dict[str, Any]) -> Dict[str, Any]:
 
     stats = outcome["stats"]
     status = "early_stopped" if stats.get("early_stopped") else "completed"
+    peak_vram = _peak_vram_gb()
+    benchmark.log_benchmark(logger, benchmark.VRAM_PEAK, peak_vram, stage="training", job=job_id)
     _update_job(
         job_id,
         status=status,
@@ -803,7 +805,7 @@ def _finish_job(job_id: str, outcome: Dict[str, Any]) -> Dict[str, Any]:
         best_val_loss=stats.get("best_val_loss"),
         best_epoch=stats.get("best_epoch"),
         early_stopping_triggered=bool(stats.get("early_stopped")),
-        peak_vram_gb=_peak_vram_gb(),
+        peak_vram_gb=peak_vram,
     )
     registered = adapter_service.register_adapter(job_id, training_stats=stats)
     if registered["status"] != "success":

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 這是一個基於 Unsloth 的 QLoRA 微調 Web 應用程式，專門為 12GB VRAM GPU 設計，用於微調和推論大型語言模型（thinking/reasoning models）。使用 Gradio 提供 Web UI，支援模型下載、基底模型推論、QLoRA 訓練和微調模型推論。
 
+> **002 擴充註記（2026-10-10）**：功能已由 `specs/002-unsloth-thinking-model/` 擴充：訓練可指定使用筆數（預設 2,000，不再強制完整資料集）、僅支援公開模型／資料集（不使用 `HF_TOKEN`）、新增硬體偵測推薦、微調模型登錄與基底對照評測、訓練中鎖定推論。內建第三個模型實際為 `Qwen/Qwen2.5-7B-Instruct`（Qwen2.5 沒有 8B 版本）。與 001 衝突時以 002 為準。
+
 ## 技術棧
 
 - **ML 框架**: PyTorch, Transformers, PEFT, Unsloth (必須從 GitHub 安裝)

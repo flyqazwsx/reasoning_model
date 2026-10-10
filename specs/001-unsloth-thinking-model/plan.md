@@ -3,6 +3,8 @@
 **Branch**: `001-unsloth-thinking-model` | **Date**: 2025-10-08 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `/specs/001-unsloth-thinking-model/spec.md`
 
+> **002 擴充註記（2026-10-10）**：本規格已由 `specs/002-unsloth-thinking-model/` 擴充。與下列項目衝突時以 002 為準：訓練可指定使用筆數（不再限定完整資料集）、僅支援公開模型與資料集（不使用 `HF_TOKEN`）、新增硬體偵測與推薦、微調模型登錄與對照評測。
+
 ## Summary
 
 建立本機 Unsloth Thinking Model QLoRA 微調 Web 應用程式，支援 12GB VRAM 硬體限制。系統提供 Gradio Web 介面，讓使用者能夠：
