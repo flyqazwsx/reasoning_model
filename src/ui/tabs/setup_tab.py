@@ -20,6 +20,7 @@ from src.services import model_service
 from src.services.dataset_service import on_dataset_download, on_dataset_selected
 from src.services.hardware_service import get_hardware_info
 from src.services.recommend_service import recommend_models
+from src.ui import ui_lock
 from src.ui.components import create_error_notification, show_error
 from src.ui.events import iter_task_progress
 from src.utils import download_control
@@ -205,6 +206,20 @@ def create_setup_tab() -> gr.Tab:
             cancel_btn,
             error_notification,
         ]
+
+        # 訓練期間鎖定下載與選擇（訓練與下載不得同時進行，E-04）
+        for locked_component, locked_name in (
+            (refresh_btn, "refresh_btn"),
+            (model_dropdown, "model_dropdown"),
+            (custom_model_id, "custom_model_id"),
+            (check_model_btn, "check_model_btn"),
+            (model_download_btn, "model_download_btn"),
+            (dataset_dropdown, "dataset_dropdown"),
+            (custom_dataset_id, "custom_dataset_id"),
+            (sample_count, "sample_count"),
+            (dataset_download_btn, "dataset_download_btn"),
+        ):
+            ui_lock.register(locked_component, locked_name)
 
         # ===== 事件 =====
 

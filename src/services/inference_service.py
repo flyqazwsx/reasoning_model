@@ -18,6 +18,7 @@ from transformers import AutoTokenizer, TextIteratorStreamer
 from src.config import CACHE_DIR, INFERENCE_LOGS_DB_PATH
 from src.lib.unsloth_wrapper import enable_inference_mode, load_model_4bit
 from src.services.model_service import find_cached_model
+from src.utils import training_state
 from src.utils.database_init import connect_database
 from src.utils.gpu_monitor import clear_gpu_cache
 from src.utils.response import build_response
@@ -167,8 +168,24 @@ def check_inference_ready(model_id: Optional[str]) -> Dict[str, Any]:
     return build_response("success", "模型已就緒，可以推論", infer_button_interactive=True)
 
 
+def check_training_idle() -> Optional[Dict[str, Any]]:
+    """訓練進行中不得推論（兩者不能同時佔用 VRAM，E-04 防護）。
+
+    基底推論、微調推論、對照與評測事件在開始前都應呼叫。
+
+    Returns:
+        訓練中時回傳可直接 yield 的錯誤事件；沒有訓練時回傳 None。
+    """
+    if training_state.is_training_active():
+        return _error_chunk(training_state.TRAINING_BUSY_MESSAGE, "請等待訓練結束後再推論")
+    return None
+
+
 def _check_request(model_id: str, prompt: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """推論前檢查；有問題時回傳可直接 yield 的錯誤事件，沒問題回傳 None。"""
+    busy = check_training_idle()
+    if busy is not None:
+        return busy
     if not prompt or not prompt.strip():
         return _error_chunk("提示詞不能為空", "請輸入有效的提示詞後再執行推論")
     is_valid, message = validate_inference_params(params)

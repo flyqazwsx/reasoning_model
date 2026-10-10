@@ -46,3 +46,16 @@ def get_training_logger(job_id: str) -> logging.Logger:
     handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
     task_logger.addHandler(handler)
     return task_logger
+
+
+def close_training_logger(job_id: str) -> None:
+    """關閉並移除單一訓練任務的日誌處理器，釋放檔案（Windows 才能刪除或移動日誌）。
+
+    Args:
+        job_id: 訓練任務編號，須與 get_training_logger 使用的相同
+    """
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", job_id).lstrip(".")
+    task_logger = logging.getLogger(f"training.{safe_id}")
+    for handler in list(task_logger.handlers):
+        handler.close()
+        task_logger.removeHandler(handler)

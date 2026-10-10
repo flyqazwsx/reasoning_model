@@ -9,7 +9,8 @@ import logging
 from pathlib import Path
 from src.ui.tabs.setup_tab import create_setup_tab
 from src.ui.tabs.inference_tab import create_inference_tab
-from src.ui.tabs.training_tab import create_training_tab
+from src.ui import ui_lock
+from src.ui.tabs.training_tab import bind_training_events, create_training_tab
 from src.utils.database_init import init_all_databases
 from src.utils.gpu_monitor import check_gpu_availability
 from src.config import LOGS_DIR
@@ -49,6 +50,10 @@ def create_app() -> gr.Blocks:
     gpu_available, gpu_msg = check_gpu_availability()
     logger.info(f"GPU 檢查結果: {gpu_msg}")
 
+    # 清除上一次建立時登錄的鎖定元件（重建應用程式時避免殘留）
+    ui_lock.reset()
+    training_tab_created = False
+
     # 建立主介面
     with gr.Blocks(
         title="Unsloth Thinking Model 微調",
@@ -87,6 +92,7 @@ def create_app() -> gr.Blocks:
             # Tab 3: QLoRA 微調訓練 (US3) ✅ 已實作（MVP）
             if gpu_available:
                 training_tab = create_training_tab()
+                training_tab_created = True
             else:
                 with gr.Tab("🔧 QLoRA 訓練") as training_tab:
                     gr.Markdown("## 使用 QLoRA 微調模型")
@@ -101,6 +107,10 @@ def create_app() -> gr.Blocks:
             with gr.Tab("📊 推論記錄") as logs_tab:
                 gr.Markdown("## 查看和匯出推論歷史記錄")
                 gr.Markdown("⚠️ 此功能尚未實作（Phase 7）")
+
+        # 訓練事件須在所有分頁建立後綁定（訓練期間要鎖定其他分頁的按鈕）
+        if training_tab_created:
+            bind_training_events()
 
         # 頁腳
         gr.Markdown(

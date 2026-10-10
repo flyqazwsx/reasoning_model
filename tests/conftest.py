@@ -163,3 +163,44 @@ def isolated_download_markers(tmp_path, monkeypatch):
     import src.services.model_service as model_service
 
     monkeypatch.setattr(model_service, "DOWNLOAD_MARKERS_DIR", tmp_path / "download-markers", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def reset_training_state():
+    """每個測試前後清除訓練執行狀態，避免訓練鎖定外洩到其他測試"""
+    from src.utils import training_state
+
+    training_state.reset()
+    yield
+    training_state.reset()
+
+
+@pytest.fixture
+def training_env(tmp_path, monkeypatch):
+    """訓練服務使用的隔離環境：暫存資料庫、檢查點與輸出目錄
+
+    Returns:
+        包含 ``db_path``（training_jobs.db）、``checkpoints``、``outputs`` 的 SimpleNamespace
+    """
+    from types import SimpleNamespace
+
+    from src.services import training_service
+    from src.utils.database_init import (
+        MODELS_DB_SCHEMAS,
+        TRAINING_JOBS_DB_SCHEMAS,
+        TRAINING_JOBS_MIGRATIONS,
+        init_database,
+    )
+
+    jobs_db = tmp_path / "training_jobs.db"
+    models_db = tmp_path / "models.db"
+    init_database(jobs_db, TRAINING_JOBS_DB_SCHEMAS, TRAINING_JOBS_MIGRATIONS)
+    init_database(models_db, MODELS_DB_SCHEMAS)
+
+    checkpoints = tmp_path / "checkpoints"
+    outputs = tmp_path / "outputs"
+    monkeypatch.setattr(training_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db)))
+    monkeypatch.setattr(training_service, "get_models_db_connection", lambda: sqlite3.connect(str(models_db)))
+    monkeypatch.setattr(training_service, "CHECKPOINTS_DIR", checkpoints)
+    monkeypatch.setattr(training_service, "OUTPUTS_DIR", outputs)
+    return SimpleNamespace(db_path=jobs_db, models_db_path=models_db, checkpoints=checkpoints, outputs=outputs)

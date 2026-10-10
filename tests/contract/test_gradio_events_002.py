@@ -307,3 +307,287 @@ class TestInferenceTabButtonState:
         _, _, stats, notice, _ = outputs[-1]
         assert stats == "推論失敗"
         assert notice["visible"] is True
+
+
+# ===== US3：E-04 開始訓練（鎖定、防護、終止確認）=====
+
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
+
+from src.services import inference_service  # noqa: E402
+from src.ui import ui_lock  # noqa: E402
+from src.utils import training_state  # noqa: E402
+
+TRAINING_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+TRAINING_DATASET = "openai/gsm8k/main"
+
+
+def _event(step: int = 5, finished: bool = False, status: str = "success", message: str = "訓練中") -> dict:
+    return {
+        "status": status,
+        "message": message,
+        "progress": step / 100,
+        "epoch": 1,
+        "step": step,
+        "total_steps": 100,
+        "loss": 0.4321,
+        "eta_sec": 30,
+        "log_line": f"step {step} loss=0.4321",
+        "finished": finished,
+        "job_id": "job-1",
+    }
+
+
+def _all_text(event: dict) -> str:
+    """把一次 UI 更新（{component: update}）裡所有 value 字串串起來，方便斷言訊息"""
+    parts = []
+    for update in event.values():
+        value = update.get("value") if isinstance(update, dict) else None
+        if isinstance(value, str):
+            parts.append(value)
+    return "\n".join(parts)
+
+
+@pytest.fixture
+def training_ui():
+    """建立含設定、推論、訓練分頁的 Blocks，回傳事件處理函式與被鎖定的元件"""
+    import gradio as gr
+
+    from src.ui.tabs import inference_tab, setup_tab, training_tab
+
+    ui_lock.reset()
+    with gr.Blocks() as demo:
+        with gr.Tabs():
+            setup_tab.create_setup_tab()
+            inference_tab.create_inference_tab()
+            training_tab.create_training_tab()
+        training_tab.bind_training_events()
+
+    handlers = {fn.fn.__name__: fn.fn for fn in demo.fns.values()}
+    yield SimpleNamespace(
+        handlers=handlers,
+        components=ui_lock.registered_components(),
+        names=ui_lock.registered_names(),
+        refreshable=ui_lock.refreshable_components(),
+    )
+    ui_lock.reset()
+
+
+def _start(handlers, sample_count=2000, **overrides):
+    values = {
+        "model_id": TRAINING_MODEL,
+        "dataset_id": TRAINING_DATASET,
+        "sample_count": sample_count,
+        "epochs": 1,
+        "lr": 2e-4,
+        "bs": 1,
+        "grad_acc": 8,
+        "lora_r": 16,
+        "lora_a": 16,
+        "lora_d": 0.05,
+        "es_patience": 2,
+    }
+    values.update(overrides)
+    return list(handlers["handle_start_training"](*values.values()))
+
+
+class TestE04StartTraining:
+    def test_start_locks_downloads_model_selection_and_inference(self, training_ui):
+        stream = iter([_event(5), _event(100, finished=True)])
+        with patch("src.ui.tabs.training_tab.run_training_stream", return_value=stream):
+            events = _start(training_ui.handlers)
+
+        first = events[0]
+        assert {"model_download_btn", "dataset_download_btn", "model_dropdown", "inference_btn"} <= set(
+            training_ui.names
+        )
+        for component in training_ui.components:
+            assert first[component]["interactive"] is False
+
+    def test_end_restores_controls_that_have_no_refresh(self, training_ui):
+        stream = iter([_event(5), _event(100, finished=True)])
+        with patch("src.ui.tabs.training_tab.run_training_stream", return_value=stream):
+            events = _start(training_ui.handlers)
+
+        last = events[-1]
+        for component in training_ui.components:
+            if component in training_ui.refreshable:
+                continue  # 依實際狀態由 refresh 事件重新判斷（例如推論按鈕看模型是否已下載）
+            assert last[component]["interactive"] is True
+
+    def test_failure_also_restores_controls(self, training_ui):
+        stream = iter([_event(5), _event(5, finished=True, status="error", message="VRAM 不足，請降低序列長度")])
+        with patch("src.ui.tabs.training_tab.run_training_stream", return_value=stream):
+            events = _start(training_ui.handlers)
+
+        last = events[-1]
+        assert "VRAM" in _all_text(last)
+        for component in training_ui.components:
+            if component not in training_ui.refreshable:
+                assert last[component]["interactive"] is True
+
+    def test_exception_in_stream_still_unlocks(self, training_ui):
+        def broken():
+            yield _event(1)
+            raise RuntimeError("串流中斷")
+
+        with patch("src.ui.tabs.training_tab.run_training_stream", return_value=broken()):
+            events = _start(training_ui.handlers)
+
+        last = events[-1]
+        assert "串流中斷" in _all_text(last) or "失敗" in _all_text(last)
+        for component in training_ui.components:
+            if component not in training_ui.refreshable:
+                assert last[component]["interactive"] is True
+
+    def test_progress_loss_eta_and_log_are_shown(self, training_ui):
+        stream = iter([_event(5), _event(100, finished=True)])
+        with patch("src.ui.tabs.training_tab.run_training_stream", return_value=stream):
+            events = _start(training_ui.handlers)
+
+        text = _all_text(events[1])
+        assert "0.4321" in text
+        assert "step 5" in text
+
+    def test_passes_user_selection_not_hardcoded_values(self, training_ui):
+        mock_stream = MagicMock(return_value=iter([_event(100, finished=True)]))
+        with patch("src.ui.tabs.training_tab.run_training_stream", mock_stream):
+            _start(training_ui.handlers, sample_count=300, model_id="org/other-model", dataset_id="org/ds/cfg")
+
+        kwargs = mock_stream.call_args.kwargs
+        args = mock_stream.call_args.args
+        passed = {**dict(zip(("model_id", "dataset_id", "hyperparameters"), args)), **kwargs}
+        assert passed["model_id"] == "org/other-model"
+        assert passed["dataset_id"] == "org/ds/cfg"
+        assert passed["sample_count"] == 300
+        assert passed["hyperparameters"]["per_device_train_batch_size"] == 1
+        assert passed["hyperparameters"]["lora_rank"] == 16
+
+    @pytest.mark.parametrize("bad_count", [10, 99, 0, -5, None])
+    def test_sample_count_out_of_range_is_error_and_does_not_lock(self, training_ui, bad_count):
+        mock_stream = MagicMock()
+        with patch("src.ui.tabs.training_tab.run_training_stream", mock_stream):
+            events = _start(training_ui.handlers, sample_count=bad_count)
+
+        mock_stream.assert_not_called()
+        assert "100" in _all_text(events[-1])
+        for event in events:
+            for component in training_ui.components:
+                assert event.get(component, {}).get("interactive", True) is not False
+
+    def test_duplicate_submit_is_ignored_with_notice(self, training_ui):
+        training_state.begin_job("running-job")
+        mock_stream = MagicMock()
+        with patch("src.ui.tabs.training_tab.run_training_stream", mock_stream):
+            events = _start(training_ui.handlers)
+
+        mock_stream.assert_not_called()
+        assert "進行中" in _all_text(events[-1])
+
+    def test_invalid_hyperparameters_are_rejected_before_training(self, training_ui):
+        mock_stream = MagicMock()
+        with patch("src.ui.tabs.training_tab.run_training_stream", mock_stream):
+            events = _start(training_ui.handlers, lr=0.5)
+
+        mock_stream.assert_not_called()
+        assert "learning_rate" in _all_text(events[-1])
+
+
+class TestTrainingGuardsInference:
+    """E-04 防護：訓練進行中收到推論事件 → error「訓練進行中，請稍後再推論」"""
+
+    def test_base_inference_rejected_while_training(self):
+        training_state.begin_job("running-job")
+
+        chunks = list(inference_service.run_base_inference("org/model", "題目"))
+
+        assert chunks[0]["status"] == "error"
+        assert chunks[0]["message"] == "訓練進行中，請稍後再推論"
+        assert chunks[0]["finished"] is True
+        assert_contract_shape(chunks[0])
+
+    def test_shared_guard_helper_for_finetuned_and_compare_events(self):
+        assert inference_service.check_training_idle() is None
+
+        training_state.begin_job("running-job")
+        rejected = inference_service.check_training_idle()
+
+        assert rejected["status"] == "error"
+        assert rejected["message"] == "訓練進行中，請稍後再推論"
+        assert_error_has_next_step(rejected)
+
+    def test_inference_tab_handler_shows_failure(self, training_ui):
+        training_state.begin_job("running-job")
+
+        outputs = list(
+            training_ui.handlers["handle_inference_execute"]("org/model", "Q", 64, 0.7, 0.9, 50, 1.1)
+        )
+
+        _, _, stats, notice, button = outputs[-1]
+        assert stats == "推論失敗"
+        assert notice["visible"] is True
+
+
+class TestStopConfirmationUi:
+    """終止按鈕先彈出警告確認，確認後才真正終止"""
+
+    def test_stop_request_only_asks_for_confirmation(self, training_ui):
+        training_state.begin_job("job-1")
+        mock_stop = MagicMock()
+        with patch("src.ui.tabs.training_tab.stop_training", mock_stop):
+            event = training_ui.handlers["handle_stop_request"]()
+
+        mock_stop.assert_not_called()
+        assert training_state.is_stop_requested("job-1") is False
+        assert "確定" in _all_text(event) or "確認" in _all_text(event)
+
+    def test_confirm_stop_calls_service_with_confirmed_true(self, training_ui):
+        training_state.begin_job("job-1")
+        mock_stop = MagicMock(
+            return_value={"status": "success", "message": "已要求終止，將在目前步驟結束後停止", "checkpoint_saved": True}
+        )
+        with patch("src.ui.tabs.training_tab.stop_training", mock_stop):
+            event = training_ui.handlers["handle_confirm_stop"]()
+
+        mock_stop.assert_called_once_with("job-1", confirmed=True)
+        assert "終止" in _all_text(event)
+
+    def test_cancel_stop_keeps_training(self, training_ui):
+        training_state.begin_job("job-1")
+
+        training_ui.handlers["handle_cancel_stop"]()
+
+        assert training_state.is_stop_requested("job-1") is False
+
+    def test_confirm_without_running_training_is_notice(self, training_ui):
+        event = training_ui.handlers["handle_confirm_stop"]()
+
+        assert "沒有" in _all_text(event)
+
+
+class TestResumeUi:
+    def test_resume_button_shown_for_interrupted_job(self, training_ui):
+        job = {"job_id": "old-job", "model_id": TRAINING_MODEL, "dataset_id": TRAINING_DATASET, "state": "interrupted"}
+        with patch("src.ui.tabs.training_tab.find_resumable_job", return_value=job):
+            update = training_ui.handlers["handle_check_resumable"]()
+
+        assert update[0]["visible"] is True
+
+    def test_resume_button_hidden_when_nothing_to_resume(self, training_ui):
+        with patch("src.ui.tabs.training_tab.find_resumable_job", return_value=None):
+            update = training_ui.handlers["handle_check_resumable"]()
+
+        assert update[0]["visible"] is False
+
+    def test_resume_streams_with_resume_job_id(self, training_ui):
+        job = {"job_id": "old-job", "model_id": TRAINING_MODEL, "dataset_id": TRAINING_DATASET, "state": "interrupted"}
+        mock_stream = MagicMock(return_value=iter([_event(100, finished=True)]))
+        with (
+            patch("src.ui.tabs.training_tab.find_resumable_job", return_value=job),
+            patch("src.ui.tabs.training_tab.run_training_stream", mock_stream),
+        ):
+            events = list(training_ui.handlers["handle_resume_training"]())
+
+        assert mock_stream.call_args.kwargs["resume_job_id"] == "old-job"
+        for component in training_ui.components:
+            assert events[0][component]["interactive"] is False

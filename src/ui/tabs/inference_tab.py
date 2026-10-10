@@ -11,6 +11,7 @@ import gradio as gr
 
 from src.config import DEFAULT_BASE_MODELS
 from src.services.inference_service import check_inference_ready, run_base_inference
+from src.ui import ui_lock
 from src.ui.components import create_error_notification, show_error
 
 logger = logging.getLogger(__name__)
@@ -182,6 +183,15 @@ def create_inference_tab() -> gr.Tab:
         # ===== 事件綁定 =====
 
         model_outputs = [model_info_display, inference_btn]
+
+        # 訓練期間鎖定；訓練結束後依「模型是否已下載」重新判斷按鈕狀態
+        ui_lock.register(model_dropdown, "inference_model_dropdown")
+        ui_lock.register(
+            inference_btn,
+            "inference_btn",
+            refresh=(handle_model_select, [model_dropdown], model_outputs),
+        )
+
         model_dropdown.change(
             fn=handle_model_select, inputs=[model_dropdown], outputs=model_outputs
         )

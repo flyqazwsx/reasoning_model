@@ -120,19 +120,19 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 測試（先寫，先確認失敗）⚠️
 
-- [ ] T040 [P] [US3] 修改 `tests/unit/test_training_service.py`：`sample_count` 範圍驗證（<100、>總筆數 → 拒絕）；預設 2000；VRAM 預估超限 → 拒絕；狀態轉換 pending→running→completed／failed／stopped／interrupted
-- [ ] T041 [P] [US3] 新增 `tests/unit/test_training_errors.py`：OOM（`RuntimeError("out of memory")`）→ 訊息含「降低序列長度」建議、保留日誌，且呼叫 `clear_gpu_cache()` 釋放 VRAM、應用程式不崩潰；訓練進度 generator 至少每 10 秒更新一次（以假時鐘測）
-- [ ] T042 [P] [US3] 新增 `tests/unit/test_training_stop.py`：終止流程 — 未確認不停止；確認後安全停止並保留檢查點、不登錄
-- [ ] T043 [P] [US3] 修改 `tests/contract/test_gradio_events_002.py` 的 E-04：開始訓練時回傳鎖定下載／模型選擇／刪除／**所有推論與評測按鈕**的 `interactive=False`（訓練與推論不得同時佔用 VRAM）；訓練進行中呼叫推論事件（E-06／E-07／E-08）→ 回傳 `error`「訓練進行中，請稍後再推論」；`sample_count` 超界回 `error`；重複送出被忽略並提示
-- [ ] T044 [P] [US3] 修改 `tests/integration/test_training_flow.py`、`test_training_checkpoint.py`（`@pytest.mark.gpu`）：小樣本（100 筆、1 epoch）完成且**訓練期間 VRAM 峰值 ≤ 12GB**（`torch.cuda.max_memory_allocated`）；日誌檔存在；模擬中斷後可從最近檢查點繼續
+- [X] T040 [P] [US3] 修改 `tests/unit/test_training_service.py`：`sample_count` 範圍驗證（<100、>總筆數 → 拒絕）；預設 2000；VRAM 預估超限 → 拒絕；狀態轉換 pending→running→completed／failed／stopped／interrupted
+- [X] T041 [P] [US3] 新增 `tests/unit/test_training_errors.py`：OOM（`RuntimeError("out of memory")`）→ 訊息含「降低序列長度」建議、保留日誌，且呼叫 `clear_gpu_cache()` 釋放 VRAM、應用程式不崩潰；訓練進度 generator 至少每 10 秒更新一次（以假時鐘測）
+- [X] T042 [P] [US3] 新增 `tests/unit/test_training_stop.py`：終止流程 — 未確認不停止；確認後安全停止並保留檢查點、不登錄
+- [X] T043 [P] [US3] 修改 `tests/contract/test_gradio_events_002.py` 的 E-04：開始訓練時回傳鎖定下載／模型選擇／刪除／**所有推論與評測按鈕**的 `interactive=False`（訓練與推論不得同時佔用 VRAM）；訓練進行中呼叫推論事件（E-06／E-07／E-08）→ 回傳 `error`「訓練進行中，請稍後再推論」；`sample_count` 超界回 `error`；重複送出被忽略並提示
+- [X] T044 [P] [US3] 修改 `tests/integration/test_training_flow.py`、`test_training_checkpoint.py`（`@pytest.mark.gpu`）：小樣本（100 筆、1 epoch）完成且**訓練期間 VRAM 峰值 ≤ 12GB**（`torch.cuda.max_memory_allocated`）；日誌檔存在；模擬中斷後可從最近檢查點繼續
 
 ### 實作
 
-- [ ] T045 [US3] **修改** `src/services/training_service.py`：`start_training(…, sample_count)`；呼叫 T028 的 `train[:N]`；開訓前呼叫 `estimate_vram_usage()` 與可用 VRAM 比對；Windows 平台（`sys.platform == "win32"`）自動設定 `dataset_num_proc=1`，並以單元測試驗證
-- [ ] T046 [US3] **修改** `src/services/training_service.py`：訓練改在背景執行緒，以 queue 回報 epoch／step／loss／ETA，供 generator 讀取；同時寫入 T018 的訓練日誌檔
-- [ ] T047 [US3] **修改** `src/services/training_service.py`：`stop_training(job_id, confirmed)`、`resume_training(job_id)`、OOM／網路／空間錯誤對應友善訊息（沿用 CLAUDE.md 錯誤處理規則）；OOM 時呼叫 `clear_gpu_cache()` 釋放資源並將任務標為 `failed`
-- [ ] T048 [US3] **修改** `src/ui/tabs/training_tab.py`、`src/ui/events.py`：新增「使用筆數」欄位（預設 2000）；進度條、損失、ETA、日誌框；開始後鎖定其他分頁的下載／選模型／刪除／推論／評測按鈕，結束（完成、失敗、終止）後依實際狀態恢復；終止按鈕先彈出警告確認；中斷後顯示「繼續訓練」
-- [ ] T049 [US3] 執行 T040～T044 轉綠
+- [X] T045 [US3] **修改** `src/services/training_service.py`：`start_training(…, sample_count)`；呼叫 T028 的 `train[:N]`；開訓前呼叫 `estimate_vram_usage()` 與可用 VRAM 比對；Windows 平台（`sys.platform == "win32"`）自動設定 `dataset_num_proc=1`，並以單元測試驗證
+- [X] T046 [US3] **修改** `src/services/training_service.py`：訓練改在背景執行緒，以 queue 回報 epoch／step／loss／ETA，供 generator 讀取；同時寫入 T018 的訓練日誌檔
+- [X] T047 [US3] **修改** `src/services/training_service.py`：`stop_training(job_id, confirmed)`、`resume_training(job_id)`、OOM／網路／空間錯誤對應友善訊息（沿用 CLAUDE.md 錯誤處理規則）；OOM 時呼叫 `clear_gpu_cache()` 釋放資源並將任務標為 `failed`
+- [X] T048 [US3] **修改** `src/ui/tabs/training_tab.py`、`src/ui/events.py`：新增「使用筆數」欄位（預設 2000）；進度條、損失、ETA、日誌框；開始後鎖定其他分頁的下載／選模型／刪除／推論／評測按鈕，結束（完成、失敗、終止）後依實際狀態恢復；終止按鈕先彈出警告確認；中斷後顯示「繼續訓練」
+- [X] T049 [US3] 執行 T040～T044 轉綠
 
 **Checkpoint**: US1～US3 皆可獨立運作
 
