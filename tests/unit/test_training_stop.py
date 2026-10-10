@@ -41,7 +41,9 @@ def running_job(training_env):
 
     def target():
         holder["result"].update(
-            training_service.start_training(MODEL_ID, "openai/gsm8k/main", HYPERPARAMS, free_vram_gb=10.0)
+            training_service.start_training(
+                MODEL_ID, "openai/gsm8k/main", HYPERPARAMS, free_vram_gb=10.0
+            )
         )
 
     thread = threading.Thread(target=target, daemon=True)
@@ -105,7 +107,8 @@ class TestStopEdgeCases:
     def test_finished_job_cannot_be_stopped(self, training_env):
         conn = sqlite3.connect(str(training_env.db_path))
         conn.execute(
-            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, hyperparameters, total_steps)"
+            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, "
+            "hyperparameters, total_steps)"
             " VALUES ('done', 'n', 'm', 'd', 'completed', '{}', 0)"
         )
         conn.commit()
@@ -119,7 +122,8 @@ class TestStopEdgeCases:
     def test_interrupted_job_is_marked_stopped_directly(self, training_env):
         conn = sqlite3.connect(str(training_env.db_path))
         conn.execute(
-            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, hyperparameters, total_steps)"
+            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, "
+            "hyperparameters, total_steps)"
             " VALUES ('orphan', 'n', 'm', 'd', 'in_progress', '{}', 0)"
         )
         conn.commit()
@@ -136,7 +140,8 @@ class TestResume:
         conn = sqlite3.connect(str(env.db_path))
         conn.execute(
             "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status,"
-            " hyperparameters, total_steps, sample_count) VALUES (?, 'n', ?, 'openai/gsm8k/main', ?, ?, 0, 150)",
+            " hyperparameters, total_steps, sample_count)"
+            " VALUES (?, 'n', ?, 'openai/gsm8k/main', ?, ?, 0, 150)",
             (job_id, MODEL_ID, status, hyperparameters),
         )
         conn.commit()
@@ -181,8 +186,12 @@ class TestResume:
         newest = self._make_checkpoint(training_env, "j", 12)
         seen = {}
 
-        def fake_execute(job_id, model_id, dataset_id, hyperparameters, sample_count, resume_from, report):
-            seen.update(job_id=job_id, resume_from=resume_from, sample_count=sample_count, model_id=model_id)
+        def fake_execute(
+            job_id, model_id, dataset_id, hyperparameters, sample_count, resume_from, report
+        ):
+            seen.update(
+                job_id=job_id, resume_from=resume_from, sample_count=sample_count, model_id=model_id
+            )
             return {
                 "stopped": False,
                 "adapter_dir": str(tmp_path),
@@ -205,7 +214,11 @@ class TestResume:
     def test_stopped_job_can_be_resumed(self, training_env, tmp_path):
         self._insert_job(training_env, "j", "user_stopped")
         self._make_checkpoint(training_env, "j", 3)
-        outcome = {"stopped": False, "adapter_dir": str(tmp_path), "stats": {"dataset_id": "d", "total_epochs": 1}}
+        outcome = {
+            "stopped": False,
+            "adapter_dir": str(tmp_path),
+            "stats": {"dataset_id": "d", "total_epochs": 1},
+        }
 
         with patch.object(training_service, "_execute_training", return_value=outcome):
             response = training_service.resume_training("j", free_vram_gb=10.0)

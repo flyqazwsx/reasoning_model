@@ -4,12 +4,13 @@ pytest 配置和 fixtures
 提供測試用的共用 fixtures 和測試環境配置
 """
 
-import pytest
-import tempfile
 import shutil
+import sqlite3
+import tempfile
 from pathlib import Path
 from typing import Generator
-import sqlite3
+
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -106,6 +107,7 @@ def sample_inference_params() -> dict:
 def reset_environment_variables():
     """每個測試重置環境變數"""
     import os
+
     original_env = os.environ.copy()
     yield
     os.environ.clear()
@@ -162,7 +164,9 @@ def isolated_download_markers(tmp_path, monkeypatch):
     """下載完成標記改放暫存資料夾，避免測試之間（或污染 cache/）互相影響"""
     import src.services.model_service as model_service
 
-    monkeypatch.setattr(model_service, "DOWNLOAD_MARKERS_DIR", tmp_path / "download-markers", raising=False)
+    monkeypatch.setattr(
+        model_service, "DOWNLOAD_MARKERS_DIR", tmp_path / "download-markers", raising=False
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -201,13 +205,21 @@ def training_env(tmp_path, monkeypatch):
 
     checkpoints = tmp_path / "checkpoints"
     outputs = tmp_path / "outputs"
-    monkeypatch.setattr(training_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db)))
-    monkeypatch.setattr(adapter_service, "get_models_db_connection", lambda: sqlite3.connect(str(models_db)))
-    monkeypatch.setattr(adapter_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db)))
+    monkeypatch.setattr(
+        training_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db))
+    )
+    monkeypatch.setattr(
+        adapter_service, "get_models_db_connection", lambda: sqlite3.connect(str(models_db))
+    )
+    monkeypatch.setattr(
+        adapter_service, "get_training_db_connection", lambda: sqlite3.connect(str(jobs_db))
+    )
     monkeypatch.setattr(adapter_service, "ADAPTER_OUTPUT_DIR", outputs)
     monkeypatch.setattr(training_service, "CHECKPOINTS_DIR", checkpoints)
     monkeypatch.setattr(training_service, "OUTPUTS_DIR", outputs)
-    return SimpleNamespace(db_path=jobs_db, models_db_path=models_db, checkpoints=checkpoints, outputs=outputs)
+    return SimpleNamespace(
+        db_path=jobs_db, models_db_path=models_db, checkpoints=checkpoints, outputs=outputs
+    )
 
 
 @pytest.fixture
@@ -226,6 +238,10 @@ def inference_db(tmp_path, monkeypatch):
 
     db_path = tmp_path / "inference_logs.db"
     init_database(db_path, INFERENCE_LOGS_DB_SCHEMAS, INFERENCE_LOGS_MIGRATIONS)
-    monkeypatch.setattr(inference_service, "get_db_connection", lambda: sqlite3.connect(str(db_path)))
-    monkeypatch.setattr(evaluation_service, "get_db_connection", lambda: sqlite3.connect(str(db_path)))
+    monkeypatch.setattr(
+        inference_service, "get_db_connection", lambda: sqlite3.connect(str(db_path))
+    )
+    monkeypatch.setattr(
+        evaluation_service, "get_db_connection", lambda: sqlite3.connect(str(db_path))
+    )
     return db_path

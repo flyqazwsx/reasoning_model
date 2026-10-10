@@ -515,7 +515,7 @@ def on_model_selected(model_id: str) -> Dict[str, Any]:
                 if is_valid
                 else (
                     f"警告：此模型可能超過 12GB VRAM 限制（估計需要 {estimated_vram_gb:.1f}GB），"
-                "建議選擇較小的模型"
+                    "建議選擇較小的模型"
                 )
             ),
             "model_info": {

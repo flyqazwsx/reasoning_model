@@ -5,8 +5,8 @@ TrainingDataset 資料實體
 """
 
 from dataclasses import dataclass
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 
 @dataclass
@@ -16,6 +16,7 @@ class TrainingDataset:
 
     對應資料庫表: training_datasets
     """
+
     dataset_id: str  # Hugging Face dataset ID (PRIMARY KEY)
     display_name: str  # 顯示名稱
     num_train_samples: int  # 訓練樣本數量
@@ -40,8 +41,7 @@ class TrainingDataset:
         valid_formats = ["instruction", "prompt_response"]
         if self.dataset_format not in valid_formats:
             raise ValueError(
-                f"dataset_format 必須是 {valid_formats} 之一，"
-                f"收到: {self.dataset_format}"
+                f"dataset_format 必須是 {valid_formats} 之一，" f"收到: {self.dataset_format}"
             )
 
     def to_dict(self) -> dict:

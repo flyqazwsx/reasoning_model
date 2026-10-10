@@ -47,20 +47,17 @@ def validate_dataset_format(dataset: Dataset) -> Tuple[bool, str]:
     columns = dataset.column_names
 
     # 格式 1: instruction/input/output
-    has_instruction_format = (
-        "instruction" in columns and
-        "input" in columns and
-        "output" in columns
-    )
+    has_instruction_format = "instruction" in columns and "input" in columns and "output" in columns
 
     # 格式 2: prompt/response
-    has_prompt_format = (
-        "prompt" in columns and
-        "response" in columns
-    )
+    has_prompt_format = "prompt" in columns and "response" in columns
 
     if not has_instruction_format and not has_prompt_format:
-        return False, f"資料集缺少必要欄位。需要 (instruction/input/output) 或 (prompt/response)，現有欄位: {columns}"
+        return (
+            False,
+            "資料集缺少必要欄位。需要 (instruction/input/output) 或 (prompt/response)，"
+            f"現有欄位: {columns}",
+        )
 
     # 檢查 null 值（檢查前幾筆資料）
     sample_size = min(10, len(dataset))
@@ -140,7 +137,7 @@ SUPPORTED_COLUMN_SETS = (
 # 沒有組織名稱的舊式代號：對應到現行的完整代號（Hub 已轉址，新版 datasets 不再接受舊名）
 LEGACY_DATASET_NAMES = {"gsm8k": "openai/gsm8k"}
 
-GIB = 1024 ** 3
+GIB = 1024**3
 CANCELLED_MESSAGE = "已取消下載，已下載的部分已保留，可稍後重新下載並續傳"
 
 
@@ -270,10 +267,12 @@ def download_dataset(
 
     if train_val_split and isinstance(dataset, dict) and "train" in dataset:
         split_dataset = dataset["train"].train_test_split(test_size=train_val_split, seed=42)
-        dataset = DatasetDict({
-            "train": split_dataset["train"],
-            "validation": split_dataset["test"],
-        })
+        dataset = DatasetDict(
+            {
+                "train": split_dataset["train"],
+                "validation": split_dataset["test"],
+            }
+        )
 
     logger.info(f"資料集下載成功: {dataset_id}")
     return dataset
@@ -389,10 +388,7 @@ def on_dataset_selected(dataset_id: str) -> Dict[str, Any]:
         # 查詢資料庫檢查是否已快取
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT * FROM training_datasets WHERE dataset_id = ?",
-            (dataset_id,)
-        )
+        cursor.execute("SELECT * FROM training_datasets WHERE dataset_id = ?", (dataset_id,))
         row = cursor.fetchone()
 
         is_cached = False
@@ -420,10 +416,12 @@ def on_dataset_selected(dataset_id: str) -> Dict[str, Any]:
                     "status": "warning",
                     "message": f"資料集欄位無法對應任何支援的格式（現有欄位: {columns}）",
                     "dataset_info": {
-                        "display_name": dataset_id.split("/")[-1] if "/" in dataset_id else dataset_id,
+                        "display_name": (
+                            dataset_id.split("/")[-1] if "/" in dataset_id else dataset_id
+                        ),
                         "num_samples": len(sample_data),
                         "is_cached": is_cached,
-                    }
+                    },
                 }
 
         except Exception as e:
@@ -453,7 +451,7 @@ def on_dataset_selected(dataset_id: str) -> Dict[str, Any]:
                 "is_cached": is_cached,
                 "format": "instruction" if "instruction" in sample_data[0] else "prompt_response",
                 "has_reasoning_field": detect_reasoning_field(sample_data[0].keys()),
-            }
+            },
         }
 
     except Exception as e:

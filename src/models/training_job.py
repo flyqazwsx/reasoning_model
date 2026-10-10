@@ -4,9 +4,9 @@ Training Job 資料實體
 定義訓練任務狀態追蹤的資料模型
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
 
 @dataclass
@@ -90,9 +90,13 @@ class TrainingJob:
     def from_dict(cls, data: dict):
         """從字典建立實例"""
         if "start_time" in data and isinstance(data["start_time"], str):
-            data["start_time"] = datetime.fromisoformat(data["start_time"]) if data["start_time"] else None
+            data["start_time"] = (
+                datetime.fromisoformat(data["start_time"]) if data["start_time"] else None
+            )
         if "end_time" in data and isinstance(data["end_time"], str):
-            data["end_time"] = datetime.fromisoformat(data["end_time"]) if data["end_time"] else None
+            data["end_time"] = (
+                datetime.fromisoformat(data["end_time"]) if data["end_time"] else None
+            )
         return cls(**data)
 
     def update_progress(
@@ -109,12 +113,14 @@ class TrainingJob:
 
         if train_loss is not None:
             import json
+
             history = json.loads(self.train_loss_history)
             history.append(train_loss)
             self.train_loss_history = json.dumps(history)
 
         if val_loss is not None:
             import json
+
             history = json.loads(self.val_loss_history)
             history.append(val_loss)
             self.val_loss_history = json.dumps(history)

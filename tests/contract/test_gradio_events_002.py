@@ -322,7 +322,9 @@ TRAINING_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 TRAINING_DATASET = "openai/gsm8k/main"
 
 
-def _event(step: int = 5, finished: bool = False, status: str = "success", message: str = "訓練中") -> dict:
+def _event(
+    step: int = 5, finished: bool = False, status: str = "success", message: str = "訓練中"
+) -> dict:
     return {
         "status": status,
         "message": message,
@@ -398,9 +400,12 @@ class TestE04StartTraining:
             events = _start(training_ui.handlers)
 
         first = events[0]
-        assert {"model_download_btn", "dataset_download_btn", "model_dropdown", "inference_btn"} <= set(
-            training_ui.names
-        )
+        assert {
+            "model_download_btn",
+            "dataset_download_btn",
+            "model_dropdown",
+            "inference_btn",
+        } <= set(training_ui.names)
         for component in training_ui.components:
             assert first[component]["interactive"] is False
 
@@ -416,7 +421,12 @@ class TestE04StartTraining:
             assert last[component]["interactive"] is True
 
     def test_failure_also_restores_controls(self, training_ui):
-        stream = iter([_event(5), _event(5, finished=True, status="error", message="VRAM 不足，請降低序列長度")])
+        stream = iter(
+            [
+                _event(5),
+                _event(5, finished=True, status="error", message="VRAM 不足，請降低序列長度"),
+            ]
+        )
         with patch("src.ui.tabs.training_tab.run_training_stream", return_value=stream):
             events = _start(training_ui.handlers)
 
@@ -452,7 +462,12 @@ class TestE04StartTraining:
     def test_passes_user_selection_not_hardcoded_values(self, training_ui):
         mock_stream = MagicMock(return_value=iter([_event(100, finished=True)]))
         with patch("src.ui.tabs.training_tab.run_training_stream", mock_stream):
-            _start(training_ui.handlers, sample_count=300, model_id="org/other-model", dataset_id="org/ds/cfg")
+            _start(
+                training_ui.handlers,
+                sample_count=300,
+                model_id="org/other-model",
+                dataset_id="org/ds/cfg",
+            )
 
         kwargs = mock_stream.call_args.kwargs
         args = mock_stream.call_args.args
@@ -520,7 +535,9 @@ class TestTrainingGuardsInference:
         training_state.begin_job("running-job")
 
         outputs = list(
-            training_ui.handlers["handle_inference_execute"]("org/model", "Q", 64, 0.7, 0.9, 50, 1.1)
+            training_ui.handlers["handle_inference_execute"](
+                "org/model", "Q", 64, 0.7, 0.9, 50, 1.1
+            )
         )
 
         _, _, stats, notice, button = outputs[-1]
@@ -544,7 +561,11 @@ class TestStopConfirmationUi:
     def test_confirm_stop_calls_service_with_confirmed_true(self, training_ui):
         training_state.begin_job("job-1")
         mock_stop = MagicMock(
-            return_value={"status": "success", "message": "已要求終止，將在目前步驟結束後停止", "checkpoint_saved": True}
+            return_value={
+                "status": "success",
+                "message": "已要求終止，將在目前步驟結束後停止",
+                "checkpoint_saved": True,
+            }
         )
         with patch("src.ui.tabs.training_tab.stop_training", mock_stop):
             event = training_ui.handlers["handle_confirm_stop"]()
@@ -567,7 +588,12 @@ class TestStopConfirmationUi:
 
 class TestResumeUi:
     def test_resume_button_shown_for_interrupted_job(self, training_ui):
-        job = {"job_id": "old-job", "model_id": TRAINING_MODEL, "dataset_id": TRAINING_DATASET, "state": "interrupted"}
+        job = {
+            "job_id": "old-job",
+            "model_id": TRAINING_MODEL,
+            "dataset_id": TRAINING_DATASET,
+            "state": "interrupted",
+        }
         with patch("src.ui.tabs.training_tab.find_resumable_job", return_value=job):
             update = training_ui.handlers["handle_check_resumable"]()
 
@@ -580,7 +606,12 @@ class TestResumeUi:
         assert update[0]["visible"] is False
 
     def test_resume_streams_with_resume_job_id(self, training_ui):
-        job = {"job_id": "old-job", "model_id": TRAINING_MODEL, "dataset_id": TRAINING_DATASET, "state": "interrupted"}
+        job = {
+            "job_id": "old-job",
+            "model_id": TRAINING_MODEL,
+            "dataset_id": TRAINING_DATASET,
+            "state": "interrupted",
+        }
         mock_stream = MagicMock(return_value=iter([_event(100, finished=True)]))
         with (
             patch("src.ui.tabs.training_tab.find_resumable_job", return_value=job),
@@ -730,9 +761,13 @@ class TestE06E07E08ErrorShape:
         assert len(events) == 1
         assert_contract_shape(events[0])
         assert events[0]["status"] == "error"
-        assert {"progress", "current_question", "base_accuracy", "finetuned_accuracy", "results"} <= set(
-            events[0]
-        )
+        assert {
+            "progress",
+            "current_question",
+            "base_accuracy",
+            "finetuned_accuracy",
+            "results",
+        } <= set(events[0])
 
     @pytest.mark.parametrize("event", ["finetuned", "compare", "evaluation"])
     def test_rejected_while_training_with_exact_message(self, training_env, event):
@@ -859,7 +894,9 @@ class TestFinetunedTabUi:
             patch.object(adapter_service, "list_adapters", return_value=[]),
         ):
             delete.return_value = {"status": "success", "message": "已刪除 adapter_job1"}
-            result = finetuned_ui.handlers["handle_delete_confirm"]("adapter_job1", ["adapter_job1"])
+            result = finetuned_ui.handlers["handle_delete_confirm"](
+                "adapter_job1", ["adapter_job1"]
+            )
 
         delete.assert_called_once_with("adapter_job1", confirmed=True)
         assert result[0]["visible"] is False
@@ -893,7 +930,13 @@ class TestFinetunedTabUi:
 
     def test_infer_streams_into_finetuned_column_and_locks_buttons(self, finetuned_ui):
         chunks = [
-            {"status": "success", "message": "思考中…", "thinking_text": "想", "answer_text": "", "finished": False},
+            {
+                "status": "success",
+                "message": "思考中…",
+                "thinking_text": "想",
+                "answer_text": "",
+                "finished": False,
+            },
             {
                 "status": "success",
                 "message": "推論完成",
@@ -934,7 +977,9 @@ class TestFinetunedTabUi:
             }
         ]
         with patch("src.ui.tabs.finetuned_tab.run_compare", return_value=iter(chunks)):
-            updates = list(finetuned_ui.handlers["handle_compare"]("x", "Q", 512, 0.7, 0.9, 50, 1.1))
+            updates = list(
+                finetuned_ui.handlers["handle_compare"]("x", "Q", 512, 0.7, 0.9, 50, 1.1)
+            )
 
         final = updates[-1]
         assert (final[0], final[1], final[2], final[3]) == ("想", "答", "想", "答")
@@ -942,11 +987,28 @@ class TestFinetunedTabUi:
 
     def test_evaluation_shows_accuracy_table(self, finetuned_ui):
         results = [
-            {"model_type": "base", "correct_count": 4, "total_questions": 10, "accuracy": 0.4, "duration_sec": 30},
-            {"model_type": "fine_tuned", "correct_count": 8, "total_questions": 10, "accuracy": 0.8, "duration_sec": 31},
+            {
+                "model_type": "base",
+                "correct_count": 4,
+                "total_questions": 10,
+                "accuracy": 0.4,
+                "duration_sec": 30,
+            },
+            {
+                "model_type": "fine_tuned",
+                "correct_count": 8,
+                "total_questions": 10,
+                "accuracy": 0.8,
+                "duration_sec": 31,
+            },
         ]
         events = [
-            {"status": "success", "message": "基底模型：第 1/10 題完成", "progress": 0.05, "finished": False},
+            {
+                "status": "success",
+                "message": "基底模型：第 1/10 題完成",
+                "progress": 0.05,
+                "finished": False,
+            },
             {
                 "status": "success",
                 "message": "評測完成：基底 40%，微調 80%",

@@ -27,7 +27,9 @@ class FakeTrainer:
     instances = []
     steps = 4
 
-    def __init__(self, model=None, args=None, train_dataset=None, eval_dataset=None, callbacks=None, **kwargs):
+    def __init__(
+        self, model=None, args=None, train_dataset=None, eval_dataset=None, callbacks=None, **kwargs
+    ):
         self.args = args
         self.callbacks = callbacks or []
         self.train_dataset = train_dataset
@@ -85,19 +87,27 @@ def pipeline(training_env, tmp_path, monkeypatch):
     model, tokenizer = MagicMock(name="model"), MagicMock(name="tokenizer")
     tokenizer.chat_template = None
     with (
-        patch.object(training_service, "load_model_4bit", return_value=(model, tokenizer)) as load_model,
+        patch.object(
+            training_service, "load_model_4bit", return_value=(model, tokenizer)
+        ) as load_model,
         patch.object(training_service, "setup_lora_config", return_value=model),
         patch.object(
             training_service,
             "download_dataset",
             side_effect=lambda dataset_id, train_val_split, sample_count: _dataset(sample_count),
         ) as download,
-        patch.object(training_service, "format_dataset_for_sft", side_effect=lambda dataset, *_: dataset),
-        patch.object(training_service, "SFTConfig", side_effect=lambda **kwargs: SimpleNamespace(**kwargs)),
+        patch.object(
+            training_service, "format_dataset_for_sft", side_effect=lambda dataset, *_: dataset
+        ),
+        patch.object(
+            training_service, "SFTConfig", side_effect=lambda **kwargs: SimpleNamespace(**kwargs)
+        ),
         patch.object(training_service, "SFTTrainer", FakeTrainer),
     ):
         model.save_pretrained.side_effect = _write_fake_adapter
-        yield SimpleNamespace(env=training_env, load_model=load_model, download=download, logs=tmp_path / "logs")
+        yield SimpleNamespace(
+            env=training_env, load_model=load_model, download=download, logs=tmp_path / "logs"
+        )
     for name in list(logging.root.manager.loggerDict):
         if name.startswith("training."):
             task_logger = logging.getLogger(name)
@@ -143,7 +153,9 @@ class TestFullPipelineWithFakes:
         assert FakeTrainer.instances[-1].args.dataset_num_proc == 1
 
     def test_checkpoints_go_to_checkpoint_directory(self, pipeline):
-        result = training_service.start_training(MODEL_ID, DATASET_ID, {"epochs": 1}, free_vram_gb=10.0)
+        result = training_service.start_training(
+            MODEL_ID, DATASET_ID, {"epochs": 1}, free_vram_gb=10.0
+        )
 
         output_dir = FakeTrainer.instances[-1].args.output_dir
         assert output_dir == str(pipeline.env.checkpoints / result["job_id"])
@@ -165,7 +177,9 @@ class TestFullPipelineWithFakes:
             return original_train(self, resume_from_checkpoint)
 
         with patch.object(FakeTrainer, "train", train_then_request_stop):
-            result = training_service.start_training(MODEL_ID, DATASET_ID, {"epochs": 1}, free_vram_gb=10.0)
+            result = training_service.start_training(
+                MODEL_ID, DATASET_ID, {"epochs": 1}, free_vram_gb=10.0
+            )
 
         assert result["status"] == "warning"
         assert training_service.get_job_state(result["job_id"]) == "stopped"
@@ -197,7 +211,9 @@ class TestFullPipelineWithFakes:
 
     def test_oom_during_training_reported_without_crash(self, pipeline):
         with patch.object(FakeTrainer, "train", side_effect=RuntimeError("CUDA out of memory")):
-            result = training_service.start_training(MODEL_ID, DATASET_ID, {"epochs": 1}, free_vram_gb=10.0)
+            result = training_service.start_training(
+                MODEL_ID, DATASET_ID, {"epochs": 1}, free_vram_gb=10.0
+            )
 
         assert result["status"] == "error"
         assert "降低序列長度" in result["message"] + result.get("suggestion", "")
@@ -206,7 +222,12 @@ class TestFullPipelineWithFakes:
     def test_stream_end_to_end_yields_progress_then_finish(self, pipeline):
         events = list(
             training_service.run_training_stream(
-                MODEL_ID, DATASET_ID, {"epochs": 1}, sample_count=100, free_vram_gb=10.0, poll_sec=0.01
+                MODEL_ID,
+                DATASET_ID,
+                {"epochs": 1},
+                sample_count=100,
+                free_vram_gb=10.0,
+                poll_sec=0.01,
             )
         )
 

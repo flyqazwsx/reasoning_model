@@ -4,8 +4,9 @@ Gradio UI 可重用元件
 定義進度條、錯誤通知、日誌區域等共用元件
 """
 
-import gradio as gr
 from typing import Optional
+
+import gradio as gr
 
 
 def create_progress_bar(label: str = "進度") -> gr.Progress:
@@ -42,7 +43,7 @@ def create_model_info_display() -> gr.Markdown:
     )
 
 
-def show_error(message: str, suggestion: str = None) -> dict:
+def show_error(message: str, suggestion: Optional[str] = None) -> dict:
     """顯示錯誤訊息"""
     error_text = f"❌ **錯誤**: {message}"
     if suggestion:

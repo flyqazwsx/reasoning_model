@@ -13,8 +13,13 @@ from src.models.training_job import TrainingJob
 
 def _evaluation(**overrides: object) -> EvaluationResult:
     values = dict(
-        evaluation_id="ev-1", model_type="base", adapter_id=None,
-        base_model_id="org/model", total_questions=10, correct_count=4, duration_sec=12.5,
+        evaluation_id="ev-1",
+        model_type="base",
+        adapter_id=None,
+        base_model_id="org/model",
+        total_questions=10,
+        correct_count=4,
+        duration_sec=12.5,
     )
     values.update(overrides)
     return EvaluationResult(**values)  # type: ignore[arg-type]
@@ -70,10 +75,20 @@ class TestExistingModelExtensions:
 
     def test_inference_record_新欄位與資料庫一致的_model_type(self) -> None:
         record = InferenceRecord(
-            record_id=None, model_id="org/m", model_type="fine_tuned", adapter_id="ft-1",
-            prompt="p", output="o", input_tokens=1, output_tokens=1,
-            inference_time_sec=0.1, vram_used_gb=1.0, timestamp=datetime.now(),
-            thinking_text="想", answer_text="答", compare_group_id="g1",
+            record_id=None,
+            model_id="org/m",
+            model_type="fine_tuned",
+            adapter_id="ft-1",
+            prompt="p",
+            output="o",
+            input_tokens=1,
+            output_tokens=1,
+            inference_time_sec=0.1,
+            vram_used_gb=1.0,
+            timestamp=datetime.now(),
+            thinking_text="想",
+            answer_text="答",
+            compare_group_id="g1",
         )
         assert record.thinking_text == "想"
         assert record.compare_group_id == "g1"
@@ -81,7 +96,15 @@ class TestExistingModelExtensions:
     def test_inference_record_舊值_finetuned_已不再接受(self) -> None:
         with pytest.raises(ValueError):
             InferenceRecord(
-                record_id=None, model_id="org/m", model_type="finetuned", adapter_id="ft-1",
-                prompt="p", output="o", input_tokens=1, output_tokens=1,
-                inference_time_sec=0.1, vram_used_gb=1.0, timestamp=datetime.now(),
+                record_id=None,
+                model_id="org/m",
+                model_type="finetuned",
+                adapter_id="ft-1",
+                prompt="p",
+                output="o",
+                input_tokens=1,
+                output_tokens=1,
+                inference_time_sec=0.1,
+                vram_used_gb=1.0,
+                timestamp=datetime.now(),
             )

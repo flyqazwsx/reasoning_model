@@ -1,5 +1,4 @@
-"""
-配置管理模組
+"""配置管理模組
 
 定義專案的路徑、預設超參數和環境變數配置
 """
@@ -115,7 +114,6 @@ DEFAULT_DATASETS: List[Dict[str, Any]] = [
 
 DEFAULT_TRAINING_HYPERPARAMETERS: Dict[str, Any] = {
     # ===== 嚴格遵守 CLAUDE.md 規定的超參數 =====
-
     # 訓練配置
     "epochs": 3,
     "learning_rate": 2e-4,  # 初始值，若 loss 不收斂可降至 1e-4 或 5e-5
@@ -124,47 +122,46 @@ DEFAULT_TRAINING_HYPERPARAMETERS: Dict[str, Any] = {
     "warmup_steps": 10,
     "weight_decay": 0.01,
     "max_grad_norm": 0.3,  # 梯度裁剪
-
     # LoRA 配置（不可更改）
     "lora_rank": 16,  # 固定值
     "lora_alpha": 16,  # 固定值，與 rank 相同（不是 32！）
     "lora_dropout": 0.05,
     "lora_target_modules": [
-        "q_proj", "k_proj", "v_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj"  # 必須包含這三個！
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",  # 必須包含這三個！
     ],
     "lora_bias": "none",  # Unsloth 優化
     "use_rslora": False,
     "use_gradient_checkpointing": "unsloth",  # "unsloth" 使用 30% 更少 VRAM
-
     # 早停配置
     "early_stopping_patience": 2,
-
     # 量化配置（必須）
     "load_in_4bit": True,  # 必須為 True
     "bnb_4bit_compute_dtype": "bfloat16",  # 優先使用 bfloat16，若不支援則用 float16
     "bnb_4bit_quant_type": "nf4",
     "bnb_4bit_use_double_quant": True,
-
     # 序列與記憶體優化
     "max_seq_length": 2048,  # 起始值，可依任務調整
     "gradient_checkpointing": True,  # 訓練時必開
-
     # 優化器配置
     "optim": "paged_adamw_8bit",  # 記憶體優化
     "lr_scheduler_type": "cosine",
-
     # 訓練策略
     "logging_steps": 10,
     "save_strategy": "epoch",
     "eval_strategy": "epoch",  # 新版 transformers 使用 eval_strategy
     "fp16": False,  # 使用 bfloat16 時設為 False
-    "bf16": True,   # 啟用 bfloat16（若 GPU 支援）
+    "bf16": True,  # 啟用 bfloat16（若 GPU 支援）
     "report_to": "none",
 }
 
 # 超參數範圍限制
-HYPERPARAMETER_RANGES = {
+HYPERPARAMETER_RANGES: Dict[str, Dict[str, Any]] = {
     "epochs": {"min": 1, "max": 10},
     "learning_rate": {"min": 1e-5, "max": 1e-3},
     "lora_rank": {"min": 8, "max": 64},
@@ -188,7 +185,7 @@ DEFAULT_INFERENCE_PARAMS: Dict[str, Any] = {
 }
 
 # 推論參數範圍限制
-INFERENCE_PARAM_RANGES = {
+INFERENCE_PARAM_RANGES: Dict[str, Dict[str, Any]] = {
     "max_new_tokens": {"min": 1, "max": 2048},
     "temperature": {"min": 0.0, "max": 2.0},
     "top_p": {"min": 0.0, "max": 1.0},
@@ -284,33 +281,40 @@ def get_error_message(error_code: str) -> str:
 
 
 def validate_hyperparameters(hyperparams: Dict[str, Any]) -> tuple[bool, str]:
-    """
-    驗證訓練超參數是否在合法範圍內
+    """驗證訓練超參數是否在合法範圍內
 
     Returns:
         (is_valid, error_message)
+
     """
     for param, value in hyperparams.items():
         if param in HYPERPARAMETER_RANGES:
             range_config = HYPERPARAMETER_RANGES[param]
             if value < range_config["min"] or value > range_config["max"]:
-                return False, f"{param} 必須在 {range_config['min']} 到 {range_config['max']} 範圍內"
+                return (
+                    False,
+                    f"{param} 必須在 {range_config['min']} 到 {range_config['max']} 範圍內",
+                )
     return True, ""
 
 
 def validate_inference_params(params: Dict[str, Any]) -> tuple[bool, str]:
-    """
-    驗證推論參數是否在合法範圍內
+    """驗證推論參數是否在合法範圍內
 
     Returns:
         (is_valid, error_message)
+
     """
     for param, value in params.items():
         if param in INFERENCE_PARAM_RANGES:
             range_config = INFERENCE_PARAM_RANGES[param]
             if value < range_config["min"] or value > range_config["max"]:
-                return False, f"{param} 必須在 {range_config['min']} 到 {range_config['max']} 範圍內"
+                return (
+                    False,
+                    f"{param} 必須在 {range_config['min']} 到 {range_config['max']} 範圍內",
+                )
     return True, ""
+
 
 # ===== 002：推薦、訓練筆數與微調模型管理 =====
 

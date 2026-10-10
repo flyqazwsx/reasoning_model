@@ -21,7 +21,7 @@ def check_gpu_availability() -> Tuple[bool, str]:
 
         device = torch.cuda.current_device()
         props = torch.cuda.get_device_properties(device)
-        vram_gb = props.total_memory / (1024 ** 3)
+        vram_gb = props.total_memory / (1024**3)
 
         # 降低要求到 11.5GB，因為系統會佔用部分 VRAM
         if vram_gb < 11.5:
@@ -40,9 +40,10 @@ def get_vram_usage() -> Optional[float]:
     """取得當前 VRAM 使用量 (GB)"""
     try:
         import torch
+
         if torch.cuda.is_available():
-            return torch.cuda.memory_allocated() / (1024 ** 3)
-    except:
+            return torch.cuda.memory_allocated() / (1024**3)
+    except Exception:
         pass
     return None
 
@@ -51,7 +52,8 @@ def clear_gpu_cache():
     """清理 GPU 快取"""
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-    except:
+    except Exception:
         pass

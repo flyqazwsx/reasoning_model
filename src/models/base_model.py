@@ -5,8 +5,8 @@ BaseModel 資料實體
 """
 
 from dataclasses import dataclass
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 
 @dataclass
@@ -16,6 +16,7 @@ class BaseModel:
 
     對應資料庫表: base_models
     """
+
     model_id: str  # Hugging Face model ID (PRIMARY KEY)
     display_name: str  # 顯示名稱
     estimated_vram_gb: float  # 估計 VRAM 使用量（GB）
@@ -34,8 +35,7 @@ class BaseModel:
         # VRAM 限制：12GB
         if self.estimated_vram_gb > 12.0:
             raise ValueError(
-                f"模型 {self.model_id} 估計需要 {self.estimated_vram_gb}GB VRAM，"
-                f"超過 12GB 限制"
+                f"模型 {self.model_id} 估計需要 {self.estimated_vram_gb}GB VRAM，" f"超過 12GB 限制"
             )
 
         if self.estimated_vram_gb <= 0:
@@ -47,8 +47,7 @@ class BaseModel:
         # 驗證 model_id 格式（應為 "org/name"）
         if "/" not in self.model_id:
             raise ValueError(
-                f"model_id 格式無效: {self.model_id}，"
-                f"應為 'organization/model-name'"
+                f"model_id 格式無效: {self.model_id}，" f"應為 'organization/model-name'"
             )
 
     def to_dict(self) -> dict:

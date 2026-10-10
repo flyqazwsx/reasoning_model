@@ -4,14 +4,16 @@
 測試模型大小驗證、元資料擷取等核心功能
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
+
 from src.services import model_service
 from src.services.model_service import (
-    validate_model_size,
-    get_model_info,
-    download_model,
     check_custom_model,
+    download_model,
+    get_model_info,
+    validate_model_size,
 )
 from src.utils import download_control
 
@@ -24,10 +26,7 @@ class TestModelSizeValidation:
     def test_validate_model_size_within_limit(self):
         """測試模型在 VRAM 限制內（應通過）"""
         # 11GB 模型應該通過 12GB 限制
-        result, message = validate_model_size(
-            model_id="test/model-11gb",
-            estimated_vram_gb=11.0
-        )
+        result, message = validate_model_size(model_id="test/model-11gb", estimated_vram_gb=11.0)
 
         assert result is True
         assert "符合" in message or "通過" in message
@@ -35,20 +34,14 @@ class TestModelSizeValidation:
     def test_validate_model_size_at_limit(self):
         """測試模型剛好在 VRAM 限制（應通過）"""
         # 12GB 模型應該通過 12GB 限制
-        result, message = validate_model_size(
-            model_id="test/model-12gb",
-            estimated_vram_gb=12.0
-        )
+        result, message = validate_model_size(model_id="test/model-12gb", estimated_vram_gb=12.0)
 
         assert result is True
 
     def test_validate_model_size_exceeds_limit(self):
         """測試模型超過 VRAM 限制（應拒絕）"""
         # 13GB 模型應該被拒絕
-        result, message = validate_model_size(
-            model_id="test/model-13gb",
-            estimated_vram_gb=13.0
-        )
+        result, message = validate_model_size(model_id="test/model-13gb", estimated_vram_gb=13.0)
 
         assert result is False
         assert "超過" in message or "不符合" in message
@@ -57,24 +50,18 @@ class TestModelSizeValidation:
     def test_validate_model_size_negative_vram(self):
         """測試無效的 VRAM 值（負數）"""
         with pytest.raises(ValueError, match="VRAM.*負數|無效"):
-            validate_model_size(
-                model_id="test/invalid",
-                estimated_vram_gb=-1.0
-            )
+            validate_model_size(model_id="test/invalid", estimated_vram_gb=-1.0)
 
     def test_validate_model_size_zero_vram(self):
         """測試無效的 VRAM 值（零）"""
         with pytest.raises(ValueError, match="VRAM.*零|無效"):
-            validate_model_size(
-                model_id="test/invalid",
-                estimated_vram_gb=0.0
-            )
+            validate_model_size(model_id="test/invalid", estimated_vram_gb=0.0)
 
 
 class TestModelInfo:
     """測試模型元資料擷取功能"""
 
-    @patch('src.services.model_service.HfApi')
+    @patch("src.services.model_service.HfApi")
     def test_get_model_info_success(self, mock_hf_api):
         """測試成功擷取模型資訊"""
         # Mock Hugging Face API 回應
@@ -87,7 +74,7 @@ class TestModelInfo:
             downloads=1000,
             likes=50,
             tags=["text-generation", "transformers"],
-            safetensors=mock_safetensors
+            safetensors=mock_safetensors,
         )
         mock_api_instance.model_info.return_value = mock_model_info
         mock_hf_api.return_value = mock_api_instance
@@ -100,7 +87,7 @@ class TestModelInfo:
         assert info["likes"] == 50
         assert info["estimated_size_gb"] > 0  # Should have estimated size
 
-    @patch('src.services.model_service.HfApi')
+    @patch("src.services.model_service.HfApi")
     def test_get_model_info_not_found(self, mock_hf_api):
         """測試模型不存在的情況"""
         mock_api_instance = Mock()
@@ -110,7 +97,7 @@ class TestModelInfo:
         with pytest.raises(ValueError, match="找不到模型|不存在"):
             get_model_info("test/nonexistent")
 
-    @patch('src.services.model_service.HfApi')
+    @patch("src.services.model_service.HfApi")
     def test_get_model_info_network_error(self, mock_hf_api):
         """測試網路錯誤"""
         mock_api_instance = Mock()
@@ -207,11 +194,14 @@ class TestCheckCustomModel:
         assert response["status"] == "error"
         assert response["message"] == GATED_MESSAGE
 
-    @pytest.mark.parametrize("error", [
-        FakeGatedRepoError("gated repo"),
-        Exception("401 Client Error: Unauthorized"),
-        Exception("403 Client Error: Forbidden"),
-    ])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            FakeGatedRepoError("gated repo"),
+            Exception("401 Client Error: Unauthorized"),
+            Exception("403 Client Error: Forbidden"),
+        ],
+    )
     @patch("src.services.model_service.HfApi")
     def test_authorization_errors_return_unsupported_error(self, mock_hf_api, error):
         mock_hf_api.return_value.model_info.side_effect = error
@@ -251,13 +241,17 @@ class TestModelDownload:
 
     @pytest.fixture(autouse=True)
     def common_patches(self):
-        with patch.object(model_service, "check_disk_space", return_value=(True, 100.0)), \
-                patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}), \
-                patch.object(model_service.time, "sleep"):
+        with (
+            patch.object(model_service, "check_disk_space", return_value=(True, 100.0)),
+            patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}),
+            patch.object(model_service.time, "sleep"),
+        ):
             yield
 
     def test_download_success_returns_download_info(self, tmp_path):
-        with patch.object(model_service, "snapshot_download", return_value=str(tmp_path)) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", return_value=str(tmp_path)
+        ) as mock_download:
             response = download_model("org/model-7b", cache_dir=str(tmp_path))
 
         assert response["status"] == "success"
@@ -267,13 +261,17 @@ class TestModelDownload:
         mock_download.assert_called_once()
 
     def test_download_never_passes_token(self, tmp_path):
-        with patch.object(model_service, "snapshot_download", return_value=str(tmp_path)) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", return_value=str(tmp_path)
+        ) as mock_download:
             download_model("org/model-7b")
 
         assert "token" not in mock_download.call_args.kwargs
 
     def test_download_passes_progress_tqdm_class(self, tmp_path):
-        with patch.object(model_service, "snapshot_download", return_value=str(tmp_path)) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", return_value=str(tmp_path)
+        ) as mock_download:
             download_model("org/model-7b")
 
         assert callable(mock_download.call_args.kwargs["tqdm_class"])
@@ -285,8 +283,10 @@ class TestModelDownload:
         assert "模型 ID" in response["message"]
 
     def test_disk_space_insufficient_returns_error_before_download(self):
-        with patch.object(model_service, "check_disk_space", return_value=(False, 5.0)), \
-                patch.object(model_service, "snapshot_download") as mock_download:
+        with (
+            patch.object(model_service, "check_disk_space", return_value=(False, 5.0)),
+            patch.object(model_service, "snapshot_download") as mock_download,
+        ):
             response = download_model("org/model-7b")
 
         assert response["status"] == "error"
@@ -294,11 +294,14 @@ class TestModelDownload:
         assert "GB" in response["message"]
         mock_download.assert_not_called()
 
-    @pytest.mark.parametrize("error", [
-        FakeGatedRepoError("gated repo"),
-        Exception("401 Client Error: Unauthorized"),
-        Exception("403 Client Error: Forbidden"),
-    ])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            FakeGatedRepoError("gated repo"),
+            Exception("401 Client Error: Unauthorized"),
+            Exception("403 Client Error: Forbidden"),
+        ],
+    )
     def test_gated_download_returns_unsupported_error(self, error):
         with patch.object(model_service, "snapshot_download", side_effect=error) as mock_download:
             response = download_model("org/gated-model")
@@ -310,7 +313,9 @@ class TestModelDownload:
     def test_network_error_retries_then_returns_retry_hint(self):
         from src.config import DOWNLOAD_RETRY_ATTEMPTS
 
-        with patch.object(model_service, "snapshot_download", side_effect=ConnectionError("lost")) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", side_effect=ConnectionError("lost")
+        ) as mock_download:
             response = download_model("org/model-7b")
 
         assert response["status"] == "error"
@@ -349,7 +354,9 @@ class TestModelDownload:
             return str(tmp_path)
 
         with patch.object(model_service, "snapshot_download", side_effect=fake_snapshot_download):
-            download_model("org/model-7b", progress_callback=lambda fraction, text: calls.append(fraction))
+            download_model(
+                "org/model-7b", progress_callback=lambda fraction, text: calls.append(fraction)
+            )
 
         assert calls, "進度 callback 至少要被呼叫一次"
         assert calls[-1] == 1.0

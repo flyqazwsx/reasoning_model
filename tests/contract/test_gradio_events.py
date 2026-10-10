@@ -4,10 +4,10 @@ Gradio 事件契約測試
 驗證 UI 事件處理器的輸入/輸出符合 contracts/gradio-events.md 定義的契約
 """
 
-import pytest
 from unittest.mock import Mock, patch
-from src.services.model_service import on_model_selected, download_model
-from src.services.dataset_service import on_dataset_selected, download_dataset
+
+from src.services.dataset_service import on_dataset_selected
+from src.services.model_service import download_model, on_model_selected
 
 
 class TestModelSelectionEventContract:

@@ -4,12 +4,18 @@
 測試超參數驗證、早停邏輯、VRAM 估算等核心功能
 """
 
-import pytest
+import inspect
+import sqlite3
+from unittest.mock import patch
+
+from src.config import SAMPLE_COUNT_DEFAULT, SAMPLE_COUNT_MIN
+from src.services import training_service
 from src.services.training_service import (
-    validate_hyperparameters,
     estimate_vram_usage,
     should_trigger_early_stopping,
+    validate_hyperparameters,
 )
+from src.utils import training_state
 
 
 class TestHyperparametersValidation:
@@ -218,14 +224,6 @@ class TestEarlyStopping:
 
 # ===== 002 US3：訓練筆數、VRAM 預檢、設定與狀態轉換 =====
 
-import inspect
-import sqlite3
-from unittest.mock import patch
-
-from src.config import SAMPLE_COUNT_DEFAULT, SAMPLE_COUNT_MIN
-from src.services import training_service
-from src.utils import training_state
-
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 HYPERPARAMS = {"epochs": 1, "learning_rate": 2e-4, "per_device_train_batch_size": 1}
 
@@ -249,7 +247,9 @@ def _fake_outcome(adapter_dir):
 def _job_status(env, job_id):
     conn = sqlite3.connect(str(env.db_path))
     try:
-        row = conn.execute("SELECT status FROM training_jobs WHERE job_id = ?", (job_id,)).fetchone()
+        row = conn.execute(
+            "SELECT status FROM training_jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
     finally:
         conn.close()
     return row[0] if row else None
@@ -259,7 +259,9 @@ class TestSampleCountValidation:
     """T040：使用筆數範圍（FR-009）"""
 
     def test_default_is_2000(self):
-        default = inspect.signature(training_service.start_training).parameters["sample_count"].default
+        default = (
+            inspect.signature(training_service.start_training).parameters["sample_count"].default
+        )
 
         assert default == SAMPLE_COUNT_DEFAULT == 2000
 
@@ -290,16 +292,22 @@ class TestVramPreflight:
     """T040：開訓前以 estimate_vram_usage 與可用 VRAM 比對"""
 
     def test_rejected_when_estimate_exceeds_free_vram(self):
-        is_valid, message = training_service.check_vram_budget(MODEL_ID, HYPERPARAMS, free_vram_gb=2.0)
+        is_valid, message = training_service.check_vram_budget(
+            MODEL_ID, HYPERPARAMS, free_vram_gb=2.0
+        )
 
         assert is_valid is False
         assert "VRAM" in message and "降低" in message
 
     def test_accepted_when_enough_vram(self):
-        assert training_service.check_vram_budget(MODEL_ID, HYPERPARAMS, free_vram_gb=10.0)[0] is True
+        assert (
+            training_service.check_vram_budget(MODEL_ID, HYPERPARAMS, free_vram_gb=10.0)[0] is True
+        )
 
     def test_no_gpu_rejected_with_clear_message(self):
-        is_valid, message = training_service.check_vram_budget(MODEL_ID, HYPERPARAMS, free_vram_gb=0.0)
+        is_valid, message = training_service.check_vram_budget(
+            MODEL_ID, HYPERPARAMS, free_vram_gb=0.0
+        )
 
         assert is_valid is False
         assert "顯示卡" in message
@@ -331,7 +339,9 @@ class TestTrainingConfig:
 
     def test_default_platform_follows_sys_platform(self, tmp_path):
         with patch.object(training_service.sys, "platform", "win32"):
-            config = training_service.build_training_config(HYPERPARAMS, tmp_path, has_validation=False)
+            config = training_service.build_training_config(
+                HYPERPARAMS, tmp_path, has_validation=False
+            )
 
         assert config["dataset_num_proc"] == 1
 
@@ -349,20 +359,31 @@ class TestTrainingConfig:
 
     def test_fp16_used_when_bf16_unsupported(self, tmp_path):
         config = training_service.build_training_config(
-            HYPERPARAMS, tmp_path, has_validation=False, platform="linux", use_bf16=False, use_fp16=True
+            HYPERPARAMS,
+            tmp_path,
+            has_validation=False,
+            platform="linux",
+            use_bf16=False,
+            use_fp16=True,
         )
 
         assert config["bf16"] is False and config["fp16"] is True
 
     def test_validation_controls_eval_strategy(self, tmp_path):
-        with_val = training_service.build_training_config(HYPERPARAMS, tmp_path, True, platform="linux")
-        without = training_service.build_training_config(HYPERPARAMS, tmp_path, False, platform="linux")
+        with_val = training_service.build_training_config(
+            HYPERPARAMS, tmp_path, True, platform="linux"
+        )
+        without = training_service.build_training_config(
+            HYPERPARAMS, tmp_path, False, platform="linux"
+        )
 
         assert with_val["eval_strategy"] == "epoch" and with_val["load_best_model_at_end"] is True
         assert without["eval_strategy"] == "no" and without["load_best_model_at_end"] is False
 
     def test_checkpoints_saved_every_epoch(self, tmp_path):
-        config = training_service.build_training_config(HYPERPARAMS, tmp_path, False, platform="linux")
+        config = training_service.build_training_config(
+            HYPERPARAMS, tmp_path, False, platform="linux"
+        )
 
         assert config["save_strategy"] == "epoch"
         assert config["output_dir"] == str(tmp_path)
@@ -386,7 +407,11 @@ class TestStatusTransitions:
             )
 
         assert result["status"] == "success"
-        assert seen == {"state_during": "running", "active_during": True, "status_during": "in_progress"}
+        assert seen == {
+            "state_during": "running",
+            "active_during": True,
+            "status_during": "in_progress",
+        }
         assert training_service.get_job_state(result["job_id"]) == "completed"
         assert training_state.is_training_active() is False
 
@@ -419,13 +444,17 @@ class TestStatusTransitions:
         adapter_dir.mkdir()
         (adapter_dir / "adapter_model.safetensors").write_bytes(b"x" * 10)
 
-        with patch.object(training_service, "_execute_training", return_value=_fake_outcome(adapter_dir)):
+        with patch.object(
+            training_service, "_execute_training", return_value=_fake_outcome(adapter_dir)
+        ):
             result = training_service.start_training(
                 MODEL_ID, "openai/gsm8k/main", HYPERPARAMS, free_vram_gb=10.0
             )
 
         conn = sqlite3.connect(str(training_env.models_db_path))
-        count = conn.execute("SELECT COUNT(*) FROM lora_adapters WHERE training_job_id = ?", (result["job_id"],))
+        count = conn.execute(
+            "SELECT COUNT(*) FROM lora_adapters WHERE training_job_id = ?", (result["job_id"],)
+        )
         assert count.fetchone()[0] == 1
         conn.close()
         assert result["adapter_id"]
@@ -433,7 +462,8 @@ class TestStatusTransitions:
     def test_interrupted_detected_when_in_progress_without_thread(self, training_env):
         conn = sqlite3.connect(str(training_env.db_path))
         conn.execute(
-            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, hyperparameters, total_steps)"
+            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, "
+            "hyperparameters, total_steps)"
             " VALUES ('old-job', 'n', 'm', 'd', 'in_progress', '{}', 0)"
         )
         conn.commit()
@@ -450,7 +480,8 @@ class TestStatusTransitions:
     def test_pending_state(self, training_env):
         conn = sqlite3.connect(str(training_env.db_path))
         conn.execute(
-            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, hyperparameters, total_steps)"
+            "INSERT INTO training_jobs (job_id, job_name, base_model_id, dataset_id, status, "
+            "hyperparameters, total_steps)"
             " VALUES ('p', 'n', 'm', 'd', 'pending', '{}', 0)"
         )
         conn.commit()
@@ -459,7 +490,9 @@ class TestStatusTransitions:
         assert training_service.get_job_state("p") == "pending"
 
     def test_sample_count_out_of_range_creates_no_job(self, training_env):
-        result = training_service.start_training(MODEL_ID, "d/s", HYPERPARAMS, sample_count=10, free_vram_gb=10.0)
+        result = training_service.start_training(
+            MODEL_ID, "d/s", HYPERPARAMS, sample_count=10, free_vram_gb=10.0
+        )
 
         assert result["status"] == "error"
         assert result.get("job_id") is None
@@ -474,13 +507,17 @@ class TestStatusTransitions:
         assert "VRAM" in result["message"]
 
     def test_sample_count_is_stored_on_job(self, training_env, tmp_path):
-        with patch.object(training_service, "_execute_training", return_value=_fake_outcome(tmp_path)):
+        with patch.object(
+            training_service, "_execute_training", return_value=_fake_outcome(tmp_path)
+        ):
             result = training_service.start_training(
                 MODEL_ID, "openai/gsm8k/main", HYPERPARAMS, sample_count=150, free_vram_gb=10.0
             )
 
         conn = sqlite3.connect(str(training_env.db_path))
-        stored = conn.execute("SELECT sample_count FROM training_jobs WHERE job_id = ?", (result["job_id"],))
+        stored = conn.execute(
+            "SELECT sample_count FROM training_jobs WHERE job_id = ?", (result["job_id"],)
+        )
         assert stored.fetchone()[0] == 150
         conn.close()
 

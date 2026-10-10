@@ -4,8 +4,8 @@ Unsloth API 封裝層
 封裝 FastLanguageModel 載入與 PEFT 配置
 """
 
-from typing import Optional, Dict, Any
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +40,19 @@ def load_model_4bit(
         (model, tokenizer)
     """
     try:
-        from unsloth import FastLanguageModel
-        import torch
         import gc
+
+        import torch
+        from unsloth import FastLanguageModel
 
         # 清理 GPU 快取，確保有足夠記憶體
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             gc.collect()
-            logger.info(f"GPU 記憶體已清理，當前可用: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f}GB")
+            logger.info(
+                "GPU 記憶體已清理，總量: "
+                f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f}GB"
+            )
 
         # 優先使用 bfloat16（若 GPU 支援），否則 float16
         if dtype is None:
@@ -74,17 +78,17 @@ def load_model_4bit(
         logger.info(f"成功載入模型: {model_id} (4-bit 量化)")
 
         # 顯示模型所在設備
-        if hasattr(model, 'device'):
+        if hasattr(model, "device"):
             logger.info(f"模型設備: {model.device}")
 
         return model, tokenizer
 
     except ImportError:
         logger.error("Unsloth 未安裝！必須安裝 Unsloth 才能繼續。")
-        logger.error("請執行: uv pip install \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"")
-        raise ImportError(
-            "Unsloth 是此專案的必要依賴。請依照 CLAUDE.md 安裝 Unsloth。"
+        logger.error(
+            '請執行: uv pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"'
         )
+        raise ImportError("Unsloth 是此專案的必要依賴。請依照 CLAUDE.md 安裝 Unsloth。")
 
 
 def setup_lora_config(
@@ -117,8 +121,13 @@ def setup_lora_config(
         # 嚴格遵守規定：必須包含完整 6 個目標模組
         if target_modules is None:
             target_modules = [
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj"  # 這三個必須包含！
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",  # 這三個必須包含！
             ]
 
         logger.info(f"配置 LoRA: r={lora_rank}, alpha={lora_alpha}, dropout={lora_dropout}")
@@ -138,14 +147,14 @@ def setup_lora_config(
             loftq_config=None,  # 不使用 LoftQ
         )
 
-        logger.info(f"LoRA 配置完成: r={lora_rank}, alpha={lora_alpha}, targets={len(target_modules)}")
+        logger.info(
+            f"LoRA 配置完成: r={lora_rank}, alpha={lora_alpha}, targets={len(target_modules)}"
+        )
         return model
 
     except ImportError:
         logger.error("Unsloth 未安裝！必須安裝 Unsloth 才能繼續。")
-        raise ImportError(
-            "Unsloth 是此專案的必要依賴。請依照 CLAUDE.md 安裝 Unsloth。"
-        )
+        raise ImportError("Unsloth 是此專案的必要依賴。請依照 CLAUDE.md 安裝 Unsloth。")
 
 
 def enable_inference_mode(model):
@@ -155,7 +164,7 @@ def enable_inference_mode(model):
 
         FastLanguageModel.for_inference(model)
         logger.info("已啟用 Unsloth 快速推論模式")
-    except:
+    except Exception:
         model.eval()
         logger.info("已啟用標準推論模式")
 

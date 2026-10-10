@@ -5,8 +5,8 @@ InferenceRecord 資料實體
 """
 
 from dataclasses import dataclass
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 
 @dataclass
@@ -16,6 +16,7 @@ class InferenceRecord:
 
     對應資料庫表: inference_logs
     """
+
     record_id: Optional[int]  # AUTO INCREMENT, None when creating new
     model_id: str  # 使用的模型 ID
     model_type: str  # "base" 或 "fine_tuned"（與資料庫 CHECK 一致）
@@ -45,9 +46,7 @@ class InferenceRecord:
         # 驗證 model_type
         valid_types = ["base", "fine_tuned"]
         if self.model_type not in valid_types:
-            raise ValueError(
-                f"model_type 必須是 {valid_types} 之一，收到: {self.model_type}"
-            )
+            raise ValueError(f"model_type 必須是 {valid_types} 之一，收到: {self.model_type}")
 
         # fine_tuned 必須有 adapter_id
         if self.model_type == "fine_tuned" and not self.adapter_id:

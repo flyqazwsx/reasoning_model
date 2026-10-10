@@ -42,8 +42,16 @@ def test_評測結果資料表存在(isolated_dbs: Path) -> None:
     database_init.init_all_databases()
     columns = _columns(isolated_dbs / "inference_logs.db", "evaluation_results")
     assert {
-        "evaluation_id", "model_type", "adapter_id", "base_model_id", "total_questions",
-        "correct_count", "accuracy", "duration_sec", "compare_group_id", "created_at",
+        "evaluation_id",
+        "model_type",
+        "adapter_id",
+        "base_model_id",
+        "total_questions",
+        "correct_count",
+        "accuracy",
+        "duration_sec",
+        "compare_group_id",
+        "created_at",
     } <= columns
 
 

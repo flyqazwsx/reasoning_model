@@ -35,9 +35,11 @@ def snapshot_dir(tmp_path):
 
 @pytest.fixture
 def common_patches():
-    with patch.object(model_service, "check_disk_space", return_value=(True, 100.0)), \
-            patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}), \
-            patch.object(model_service.time, "sleep"):
+    with (
+        patch.object(model_service, "check_disk_space", return_value=(True, 100.0)),
+        patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}),
+        patch.object(model_service.time, "sleep"),
+    ):
         yield
 
 
@@ -47,7 +49,9 @@ class TestModelDownloadFlow:
 
     def test_download_then_reuse_cache_without_redownload(self, snapshot_dir, tmp_path):
         """第二次呼叫直接使用本機快取，不再呼叫 snapshot_download（SC-006）"""
-        with patch.object(model_service, "snapshot_download", return_value=str(snapshot_dir)) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", return_value=str(snapshot_dir)
+        ) as mock_download:
             first = download_model("test/model-7b", cache_dir=str(tmp_path))
             second = download_model("test/model-7b", cache_dir=str(tmp_path))
 
@@ -59,7 +63,9 @@ class TestModelDownloadFlow:
 
     def test_cache_is_ignored_when_snapshot_folder_was_removed(self, snapshot_dir, tmp_path):
         """快取資料夾被刪除後，重新下載而不是誤報已就緒"""
-        with patch.object(model_service, "snapshot_download", return_value=str(snapshot_dir)) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", return_value=str(snapshot_dir)
+        ) as mock_download:
             download_model("test/model-7b", cache_dir=str(tmp_path))
             (snapshot_dir / "config.json").unlink()
             snapshot_dir.rmdir()
@@ -72,6 +78,7 @@ class TestModelDownloadFlow:
 
     def test_cancelled_download_is_not_marked_as_cached(self, tmp_path):
         """取消的下載不得被標記為已完成"""
+
         def cancel_midway(**kwargs):
             model_service.cancel_download()
             kwargs["tqdm_class"](total=2).update(1)
@@ -79,7 +86,9 @@ class TestModelDownloadFlow:
         with patch.object(model_service, "snapshot_download", side_effect=cancel_midway):
             first = download_model("test/model-7b", cache_dir=str(tmp_path))
 
-        with patch.object(model_service, "snapshot_download", return_value=str(tmp_path)) as mock_download:
+        with patch.object(
+            model_service, "snapshot_download", return_value=str(tmp_path)
+        ) as mock_download:
             second = download_model("test/model-7b", cache_dir=str(tmp_path))
 
         assert first["status"] == "warning"

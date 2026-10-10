@@ -4,28 +4,27 @@ Unsloth Thinking Model 微調 Web 應用程式主程式
 整合所有 Gradio UI Tab 和服務
 """
 
-import gradio as gr
 import logging
-from pathlib import Path
+from typing import cast
+
+import gradio as gr
+
+from src.config import LOGS_DIR
 from src.services import adapter_service
-from src.ui.tabs.finetuned_tab import create_finetuned_tab
-from src.ui.tabs.setup_tab import create_setup_tab
-from src.ui.tabs.inference_tab import create_inference_tab
 from src.ui import ui_lock
+from src.ui.tabs.finetuned_tab import create_finetuned_tab
+from src.ui.tabs.inference_tab import create_inference_tab
+from src.ui.tabs.setup_tab import create_setup_tab
 from src.ui.tabs.training_tab import bind_training_events, create_training_tab
 from src.utils.database_init import init_all_databases
 from src.utils.gpu_monitor import check_gpu_availability
-from src.config import LOGS_DIR
 
 # 設定日誌
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOGS_DIR / 'app.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOGS_DIR / "app.log"), logging.StreamHandler()],
 )
 
 logger = logging.getLogger(__name__)
@@ -69,49 +68,45 @@ def create_app() -> gr.Blocks:
         theme=gr.themes.Soft(),
     ) as app:
         # 應用標題
-        gr.Markdown(
-            """
+        gr.Markdown("""
             # 🚀 Unsloth Thinking Model 微調 Web 應用程式
 
             使用 QLoRA 在 12GB VRAM 下微調大型語言模型
-            """
-        )
+            """)
 
         # GPU 狀態顯示
         if gpu_available:
             gr.Markdown(f"✅ **GPU 狀態**: {gpu_msg}")
         else:
-            gr.Markdown(
-                f"""
+            gr.Markdown(f"""
                 ❌ **GPU 檢查失敗**: {gpu_msg}
 
                 **無法繼續**：訓練功能需要至少 12GB VRAM 的 GPU。
                 推論功能可能仍可使用（取決於模型大小）。
-                """
-            )
+                """)
 
         # ===== Tab 區域 =====
         with gr.Tabs():
             # Tab 1: 模型與資料集準備 (US1)
-            setup_tab = create_setup_tab()
+            create_setup_tab()
 
             # Tab 2: 基底模型推論 (US2) ✅ 已實作
-            inference_tab = create_inference_tab()
+            create_inference_tab()
 
             # Tab 3: QLoRA 微調訓練 (US3) ✅ 已實作（MVP）
             if gpu_available:
-                training_tab = create_training_tab()
+                create_training_tab()
                 training_tab_created = True
             else:
-                with gr.Tab("🔧 QLoRA 訓練") as training_tab:
+                with gr.Tab("🔧 QLoRA 訓練"):
                     gr.Markdown("## 使用 QLoRA 微調模型")
                     gr.Markdown("❌ **訓練不可用**：需要至少 12GB VRAM 的 GPU")
 
             # Tab 4: 微調模型推論與對比 (US4) ✅ 已實作
-            finetuned_tab = create_finetuned_tab()
+            create_finetuned_tab()
 
             # Tab 5: 推論記錄查看與匯出 - 待實作
-            with gr.Tab("📊 推論記錄") as logs_tab:
+            with gr.Tab("📊 推論記錄"):
                 gr.Markdown("## 查看和匯出推論歷史記錄")
                 gr.Markdown("⚠️ 此功能尚未實作（Phase 7）")
 
@@ -120,15 +115,13 @@ def create_app() -> gr.Blocks:
             bind_training_events()
 
         # 頁腳
-        gr.Markdown(
-            """
+        gr.Markdown("""
             ---
             **MVP 版本** | US1 ✅ | US2 ✅ | US3 ✅ | US4 ✅ | 推論記錄頁開發中
-            """
-        )
+            """)
 
     logger.info("應用程式初始化完成")
-    return app
+    return cast(gr.Blocks, app)
 
 
 def main():

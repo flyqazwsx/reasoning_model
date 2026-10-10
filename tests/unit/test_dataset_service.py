@@ -4,13 +4,15 @@
 測試資料集格式驗證、下載與處理功能
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 from datasets import Dataset
+
 from src.services.dataset_service import (
-    validate_dataset_format,
     download_dataset,
     get_dataset_info,
+    validate_dataset_format,
 )
 
 
@@ -20,11 +22,13 @@ class TestDatasetFormatValidation:
     def test_validate_dataset_format_valid_instruction(self):
         """測試有效的 instruction 格式資料集"""
         # 正確格式: instruction, input, output
-        dataset = Dataset.from_dict({
-            "instruction": ["計算 2+2", "解釋量子力學"],
-            "input": ["", ""],
-            "output": ["4", "量子力學是..."],
-        })
+        dataset = Dataset.from_dict(
+            {
+                "instruction": ["計算 2+2", "解釋量子力學"],
+                "input": ["", ""],
+                "output": ["4", "量子力學是..."],
+            }
+        )
 
         result, message = validate_dataset_format(dataset)
 
@@ -34,10 +38,12 @@ class TestDatasetFormatValidation:
     def test_validate_dataset_format_valid_prompt_response(self):
         """測試有效的 prompt/response 格式資料集"""
         # 替代格式: prompt, response
-        dataset = Dataset.from_dict({
-            "prompt": ["問題 1", "問題 2"],
-            "response": ["答案 1", "答案 2"],
-        })
+        dataset = Dataset.from_dict(
+            {
+                "prompt": ["問題 1", "問題 2"],
+                "response": ["答案 1", "答案 2"],
+            }
+        )
 
         result, message = validate_dataset_format(dataset)
 
@@ -46,10 +52,12 @@ class TestDatasetFormatValidation:
     def test_validate_dataset_format_missing_columns(self):
         """測試缺少必要欄位的資料集"""
         # 缺少 output 欄位
-        dataset = Dataset.from_dict({
-            "instruction": ["問題"],
-            "input": [""],
-        })
+        dataset = Dataset.from_dict(
+            {
+                "instruction": ["問題"],
+                "input": [""],
+            }
+        )
 
         result, message = validate_dataset_format(dataset)
 
@@ -58,11 +66,13 @@ class TestDatasetFormatValidation:
 
     def test_validate_dataset_format_empty_dataset(self):
         """測試空資料集"""
-        dataset = Dataset.from_dict({
-            "instruction": [],
-            "input": [],
-            "output": [],
-        })
+        dataset = Dataset.from_dict(
+            {
+                "instruction": [],
+                "input": [],
+                "output": [],
+            }
+        )
 
         result, message = validate_dataset_format(dataset)
 
@@ -71,11 +81,13 @@ class TestDatasetFormatValidation:
 
     def test_validate_dataset_format_null_values(self):
         """測試包含 null 值的資料集"""
-        dataset = Dataset.from_dict({
-            "instruction": ["問題", None],
-            "input": ["", ""],
-            "output": ["答案", "回應"],
-        })
+        dataset = Dataset.from_dict(
+            {
+                "instruction": ["問題", None],
+                "input": ["", ""],
+                "output": ["答案", "回應"],
+            }
+        )
 
         result, message = validate_dataset_format(dataset)
 
@@ -87,31 +99,35 @@ class TestDatasetFormatValidation:
         # pyarrow 不允許長度不一致，會在建立時就失敗
         # 這裡測試應該要 raise 錯誤
         with pytest.raises(Exception):  # pyarrow.lib.ArrowInvalid
-            dataset = Dataset.from_dict({
-                "instruction": ["問題 1", "問題 2"],
-                "input": [""],  # 長度不匹配
-                "output": ["答案 1", "答案 2"],
-            })
+            Dataset.from_dict(
+                {
+                    "instruction": ["問題 1", "問題 2"],
+                    "input": [""],  # 長度不匹配
+                    "output": ["答案 1", "答案 2"],
+                }
+            )
 
 
 class TestDatasetInfo:
     """測試資料集元資料擷取功能"""
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_get_dataset_info_success(self, mock_load_dataset):
         """測試成功擷取資料集資訊"""
         # Mock streaming dataset（第一次呼叫，split="train", streaming=True）
         mock_streaming = Mock()
-        mock_streaming.take = Mock(return_value=[
-            {"instruction": "範例指令", "input": "", "output": "範例輸出"}
-        ])
+        mock_streaming.take = Mock(
+            return_value=[{"instruction": "範例指令", "input": "", "output": "範例輸出"}]
+        )
 
         # Mock 完整資料集（第二次呼叫，split="train" 但沒有 streaming）
-        mock_full_dataset = Dataset.from_dict({
-            "instruction": [f"Q{i}" for i in range(1000)],
-            "input": [""] * 1000,
-            "output": [f"A{i}" for i in range(1000)],
-        })
+        mock_full_dataset = Dataset.from_dict(
+            {
+                "instruction": [f"Q{i}" for i in range(1000)],
+                "input": [""] * 1000,
+                "output": [f"A{i}" for i in range(1000)],
+            }
+        )
 
         # load_dataset 會被呼叫兩次（streaming + full）
         # 第二次返回的是 Dataset 本身，不是 dict
@@ -123,7 +139,7 @@ class TestDatasetInfo:
         assert info["num_rows"] == 1000
         assert "instruction" in info["columns"]
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_get_dataset_info_not_found(self, mock_load_dataset):
         """測試資料集不存在"""
         mock_load_dataset.side_effect = Exception("Dataset not found")
@@ -135,70 +151,67 @@ class TestDatasetInfo:
 class TestDatasetDownload:
     """測試資料集下載功能"""
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_download_dataset_success(self, mock_load_dataset, tmp_path):
         """測試成功下載資料集"""
         # Mock 資料集
-        mock_train = Dataset.from_dict({
-            "instruction": ["Q1", "Q2"],
-            "input": ["", ""],
-            "output": ["A1", "A2"],
-        })
+        mock_train = Dataset.from_dict(
+            {
+                "instruction": ["Q1", "Q2"],
+                "input": ["", ""],
+                "output": ["A1", "A2"],
+            }
+        )
         mock_load_dataset.return_value = {"train": mock_train}
 
-        dataset = download_dataset(
-            dataset_id="test/dataset",
-            cache_dir=str(tmp_path)
-        )
+        dataset = download_dataset(dataset_id="test/dataset", cache_dir=str(tmp_path))
 
         assert dataset is not None
         assert "train" in dataset
         mock_load_dataset.assert_called_once()
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_download_dataset_with_split(self, mock_load_dataset):
         """測試下載特定分割的資料集"""
-        mock_train = Dataset.from_dict({
-            "instruction": ["Q"],
-            "input": [""],
-            "output": ["A"],
-        })
+        mock_train = Dataset.from_dict(
+            {
+                "instruction": ["Q"],
+                "input": [""],
+                "output": ["A"],
+            }
+        )
         mock_load_dataset.return_value = {"train": mock_train}
 
-        dataset = download_dataset(
-            dataset_id="test/dataset",
-            split="train"
-        )
+        dataset = download_dataset(dataset_id="test/dataset", split="train")
 
         assert dataset is not None
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_download_dataset_with_validation_split(self, mock_load_dataset):
         """測試自動建立 train/val 分割"""
         # Mock 只有 train 的資料集
-        mock_train = Dataset.from_dict({
-            "instruction": [f"Q{i}" for i in range(100)],
-            "input": [""] * 100,
-            "output": [f"A{i}" for i in range(100)],
-        })
+        mock_train = Dataset.from_dict(
+            {
+                "instruction": [f"Q{i}" for i in range(100)],
+                "input": [""] * 100,
+                "output": [f"A{i}" for i in range(100)],
+            }
+        )
         mock_load_dataset.return_value = {"train": mock_train}
 
-        dataset = download_dataset(
-            dataset_id="test/dataset",
-            train_val_split=0.1  # 10% validation
-        )
+        dataset = download_dataset(dataset_id="test/dataset", train_val_split=0.1)  # 10% validation
 
         assert dataset is not None
         # 應該要有 train 和 validation split
         assert "train" in dataset or "validation" in dataset
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_download_dataset_invalid_id(self, mock_load_dataset):
         """測試無效的資料集 ID"""
         with pytest.raises(ValueError, match="資料集 ID.*無效"):
             download_dataset(dataset_id="")
 
-    @patch('src.services.dataset_service.load_dataset')
+    @patch("src.services.dataset_service.load_dataset")
     def test_download_dataset_network_error(self, mock_load_dataset):
         """測試網路錯誤"""
         mock_load_dataset.side_effect = ConnectionError("Network error")
@@ -213,11 +226,13 @@ GATED_MESSAGE = "此項目需授權，本應用程式不支援"
 
 
 def _instruction_dataset(rows: int = 5) -> Dataset:
-    return Dataset.from_dict({
-        "instruction": [f"Q{i}" for i in range(rows)],
-        "input": [""] * rows,
-        "output": [f"A{i}" for i in range(rows)],
-    })
+    return Dataset.from_dict(
+        {
+            "instruction": [f"Q{i}" for i in range(rows)],
+            "input": [""] * rows,
+            "output": [f"A{i}" for i in range(rows)],
+        }
+    )
 
 
 @pytest.fixture
@@ -232,11 +247,14 @@ def clean_download_state():
 class TestDetectReasoningField:
     """測試思考過程欄位偵測"""
 
-    @pytest.mark.parametrize("columns", [
-        ["question", "thinking", "answer"],
-        ["source", "rationale", "target"],
-        ["prompt", "reasoning", "response"],
-    ])
+    @pytest.mark.parametrize(
+        "columns",
+        [
+            ["question", "thinking", "answer"],
+            ["source", "rationale", "target"],
+            ["prompt", "reasoning", "response"],
+        ],
+    )
     def test_detects_reasoning_columns(self, columns):
         from src.services.dataset_service import detect_reasoning_field
 
@@ -251,13 +269,16 @@ class TestDetectReasoningField:
 class TestSupportedFormats:
     """測試欄位是否可對應支援的格式"""
 
-    @pytest.mark.parametrize("columns", [
-        ["instruction", "input", "output"],
-        ["prompt", "response"],
-        ["question", "answer"],
-        ["source", "rationale", "target"],
-        ["messages"],
-    ])
+    @pytest.mark.parametrize(
+        "columns",
+        [
+            ["instruction", "input", "output"],
+            ["prompt", "response"],
+            ["question", "answer"],
+            ["source", "rationale", "target"],
+            ["messages"],
+        ],
+    )
     def test_supported(self, columns):
         from src.services.dataset_service import is_supported_columns
 
@@ -298,12 +319,17 @@ class TestDownloadDatasetSampleCount:
         with pytest.raises(ValueError, match="無法對應"):
             download_dataset("test/weird-columns")
 
-    @pytest.mark.parametrize("error", [
-        Exception("401 Client Error: Unauthorized"),
-        Exception("403 Forbidden: gated dataset"),
-    ])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            Exception("401 Client Error: Unauthorized"),
+            Exception("403 Forbidden: gated dataset"),
+        ],
+    )
     @patch("src.services.dataset_service.load_dataset")
-    def test_gated_dataset_raises_unsupported_error(self, mock_load_dataset, error, clean_download_state):
+    def test_gated_dataset_raises_unsupported_error(
+        self, mock_load_dataset, error, clean_download_state
+    ):
         from src.utils.download_control import GatedAccessError
 
         mock_load_dataset.side_effect = error
@@ -330,12 +356,16 @@ class TestOnDatasetDownload:
             yield
 
     @patch("src.services.dataset_service.load_dataset")
-    def test_success_reports_samples_and_reasoning_field(self, mock_load_dataset, clean_download_state):
-        mock_load_dataset.return_value = Dataset.from_dict({
-            "question": ["Q1", "Q2"],
-            "thinking": ["t1", "t2"],
-            "answer": ["A1", "A2"],
-        })
+    def test_success_reports_samples_and_reasoning_field(
+        self, mock_load_dataset, clean_download_state
+    ):
+        mock_load_dataset.return_value = Dataset.from_dict(
+            {
+                "question": ["Q1", "Q2"],
+                "thinking": ["t1", "t2"],
+                "answer": ["A1", "A2"],
+            }
+        )
         from src.services.dataset_service import on_dataset_download
 
         response = on_dataset_download("org/reasoning", sample_count=100)
@@ -365,11 +395,15 @@ class TestOnDatasetDownload:
         assert response["message"] == GATED_MESSAGE
 
     @patch("src.services.dataset_service.load_dataset")
-    def test_insufficient_disk_space_returns_error_before_download(self, mock_load_dataset, clean_download_state):
+    def test_insufficient_disk_space_returns_error_before_download(
+        self, mock_load_dataset, clean_download_state
+    ):
         from src.services.dataset_service import on_dataset_download
 
-        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=20.0), \
-                patch("src.services.dataset_service.check_disk_space", return_value=(False, 5.0)):
+        with (
+            patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=20.0),
+            patch("src.services.dataset_service.check_disk_space", return_value=(False, 5.0)),
+        ):
             response = on_dataset_download("org/big")
 
         assert response["status"] == "error"
@@ -393,15 +427,21 @@ class TestMessagesThinkMarkup:
     """對話格式以 <think> 標記保留思考過程"""
 
     @patch("src.services.dataset_service.load_dataset")
-    def test_messages_with_think_tag_reports_reasoning_field(self, mock_load_dataset, clean_download_state):
+    def test_messages_with_think_tag_reports_reasoning_field(
+        self, mock_load_dataset, clean_download_state
+    ):
         from src.services.dataset_service import on_dataset_download
 
-        mock_load_dataset.return_value = Dataset.from_dict({
-            "messages": [[
-                {"role": "user", "content": "1+1?"},
-                {"role": "assistant", "content": "<think>先加起來</think>2"},
-            ]],
-        })
+        mock_load_dataset.return_value = Dataset.from_dict(
+            {
+                "messages": [
+                    [
+                        {"role": "user", "content": "1+1?"},
+                        {"role": "assistant", "content": "<think>先加起來</think>2"},
+                    ]
+                ],
+            }
+        )
 
         with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
             response = on_dataset_download("open-r1/Mixture-of-Thoughts/math", sample_count=100)
@@ -410,15 +450,21 @@ class TestMessagesThinkMarkup:
         assert response["dataset_info"]["has_reasoning_field"] is True
 
     @patch("src.services.dataset_service.load_dataset")
-    def test_messages_without_think_tag_has_no_reasoning_field(self, mock_load_dataset, clean_download_state):
+    def test_messages_without_think_tag_has_no_reasoning_field(
+        self, mock_load_dataset, clean_download_state
+    ):
         from src.services.dataset_service import on_dataset_download
 
-        mock_load_dataset.return_value = Dataset.from_dict({
-            "messages": [[
-                {"role": "user", "content": "1+1?"},
-                {"role": "assistant", "content": "2"},
-            ]],
-        })
+        mock_load_dataset.return_value = Dataset.from_dict(
+            {
+                "messages": [
+                    [
+                        {"role": "user", "content": "1+1?"},
+                        {"role": "assistant", "content": "2"},
+                    ]
+                ],
+            }
+        )
 
         with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
             response = on_dataset_download("org/chat", sample_count=100)
@@ -429,13 +475,16 @@ class TestMessagesThinkMarkup:
 class TestParseDatasetId:
     """代號拆解：org/name 不是 dataset/config"""
 
-    @pytest.mark.parametrize("dataset_id,expected", [
-        ("open-r1/Mixture-of-Thoughts", ("open-r1/Mixture-of-Thoughts", None)),
-        ("open-r1/Mixture-of-Thoughts/math", ("open-r1/Mixture-of-Thoughts", "math")),
-        ("openai/gsm8k/main", ("openai/gsm8k", "main")),
-        ("gsm8k", ("openai/gsm8k", "main")),
-        ("gsm8k/socratic", ("openai/gsm8k", "socratic")),
-    ])
+    @pytest.mark.parametrize(
+        "dataset_id,expected",
+        [
+            ("open-r1/Mixture-of-Thoughts", ("open-r1/Mixture-of-Thoughts", None)),
+            ("open-r1/Mixture-of-Thoughts/math", ("open-r1/Mixture-of-Thoughts", "math")),
+            ("openai/gsm8k/main", ("openai/gsm8k", "main")),
+            ("gsm8k", ("openai/gsm8k", "main")),
+            ("gsm8k/socratic", ("openai/gsm8k", "socratic")),
+        ],
+    )
     def test_parse(self, dataset_id, expected):
         from src.services.dataset_service import parse_dataset_id
 

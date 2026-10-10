@@ -33,10 +33,7 @@ logger = logging.getLogger(__name__)
 
 MAX_LOG_LINES = 300
 IDLE_STATUS_TEXT = "⚪ **訓練狀態**：尚未開始"
-IDLE_STATS_TEXT = (
-    "**訓練統計**：\n"
-    "- Epoch：-\n- 步驟：-\n- 訓練損失：N/A\n- 預計剩餘時間：N/A"
-)
+IDLE_STATS_TEXT = "**訓練統計**：\n" "- Epoch：-\n- 步驟：-\n- 訓練損失：N/A\n- 預計剩餘時間：N/A"
 STOP_CONFIRM_TEXT = "⚠️ **確定要終止訓練嗎？** 已儲存的檢查點會保留，之後可以從檢查點繼續。"
 
 # create_training_tab() 建立的元件，bind_training_events() 取用

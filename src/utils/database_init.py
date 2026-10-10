@@ -4,16 +4,16 @@
 執行 data-model.md 中定義的所有表格和索引建立
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import List, Optional, Tuple
-import logging
 
 from src.config import (
     DATA_DIR,
-    MODELS_DB_PATH,
     DATASETS_DB_PATH,
     INFERENCE_LOGS_DB_PATH,
+    MODELS_DB_PATH,
     TRAINING_JOBS_DB_PATH,
 )
 
@@ -196,7 +196,9 @@ TRAINING_JOBS_DB_SCHEMAS = [
         peak_vram_gb REAL,
         avg_vram_gb REAL,
         estimated_time_remaining_sec REAL,
-        CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'early_stopped', 'user_stopped')),
+        CHECK (status IN (
+            'pending', 'in_progress', 'completed', 'failed', 'early_stopped', 'user_stopped'
+        )),
         CHECK (peak_vram_gb <= 12.0)
     )
     """,

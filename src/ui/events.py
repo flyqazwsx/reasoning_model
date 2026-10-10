@@ -48,9 +48,9 @@ class EventHandler:
 def create_event_response(
     status: str,
     message: str = "",
-    data: Dict[str, Any] = None,
-    error_code: str = None,
-    suggestion: str = None,
+    data: Optional[Dict[str, Any]] = None,
+    error_code: Optional[str] = None,
+    suggestion: Optional[str] = None,
 ) -> Dict[str, Any]:
     """建立標準事件回應格式"""
     response = {

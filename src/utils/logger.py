@@ -2,10 +2,12 @@
 
 import logging
 import re
-from pathlib import Path
-from src.config import LOGS_DIR, LOG_LEVEL, LOG_FORMAT, LOG_DATE_FORMAT
+from typing import Optional
 
-def setup_logger(name: str, log_file: str = None) -> logging.Logger:
+from src.config import LOG_DATE_FORMAT, LOG_FORMAT, LOG_LEVEL, LOGS_DIR
+
+
+def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     """設定日誌記錄器"""
     logger = logging.getLogger(name)
     logger.setLevel(LOG_LEVEL)

@@ -82,8 +82,7 @@ def create_inference_tab() -> gr.Tab:
                 prompt_input = gr.Textbox(
                     label="提示詞",
                     placeholder=(
-                        "請輸入您的問題或指令...\n"
-                        "例如：小明有 5 顆蘋果，吃掉 2 顆，還剩幾顆？"
+                        "請輸入您的問題或指令...\n" "例如：小明有 5 顆蘋果，吃掉 2 顆，還剩幾顆？"
                     ),
                     lines=5,
                     interactive=True,

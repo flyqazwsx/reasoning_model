@@ -36,7 +36,9 @@ def training_logs(tmp_path, monkeypatch):
 
 def _run_with_error(error: BaseException) -> dict:
     with patch.object(training_service, "_execute_training", side_effect=error):
-        return training_service.start_training(MODEL_ID, "openai/gsm8k/main", HYPERPARAMS, free_vram_gb=10.0)
+        return training_service.start_training(
+            MODEL_ID, "openai/gsm8k/main", HYPERPARAMS, free_vram_gb=10.0
+        )
 
 
 class TestOutOfMemory:
@@ -137,7 +139,14 @@ class TestProgressHeartbeat:
 
         def fake_start(*args, progress_callback=None, **kwargs):
             progress_callback(
-                {"epoch": 1, "step": 3, "total_steps": 100, "loss": 0.5, "eta_sec": 60, "log_line": "step 3"}
+                {
+                    "epoch": 1,
+                    "step": 3,
+                    "total_steps": 100,
+                    "loss": 0.5,
+                    "eta_sec": 60,
+                    "log_line": "step 3",
+                }
             )
             release.wait(timeout=5)
             return {"status": "success", "message": "訓練完成", "job_id": "j", "adapter_id": "a"}
@@ -178,17 +187,36 @@ class TestProgressHeartbeat:
     def test_progress_events_carry_contract_fields(self, training_env):
         def fake_start(*args, progress_callback=None, **kwargs):
             progress_callback(
-                {"epoch": 1, "step": 5, "total_steps": 50, "loss": 0.7, "eta_sec": 30, "log_line": "hello"}
+                {
+                    "epoch": 1,
+                    "step": 5,
+                    "total_steps": 50,
+                    "loss": 0.7,
+                    "eta_sec": 30,
+                    "log_line": "hello",
+                }
             )
             return {"status": "success", "message": "訓練完成", "job_id": "j", "adapter_id": "a"}
 
         with patch.object(training_service, "start_training", side_effect=fake_start):
             events = list(
-                training_service.run_training_stream(MODEL_ID, "d/s", HYPERPARAMS, sample_count=100, poll_sec=0.01)
+                training_service.run_training_stream(
+                    MODEL_ID, "d/s", HYPERPARAMS, sample_count=100, poll_sec=0.01
+                )
             )
 
         progress = [e for e in events if e.get("step") == 5][0]
-        for key in ("status", "message", "progress", "epoch", "step", "total_steps", "loss", "eta_sec", "log_line"):
+        for key in (
+            "status",
+            "message",
+            "progress",
+            "epoch",
+            "step",
+            "total_steps",
+            "loss",
+            "eta_sec",
+            "log_line",
+        ):
             assert key in progress
         assert progress["progress"] == pytest.approx(0.1)
         assert events[-1]["finished"] is True
@@ -196,7 +224,9 @@ class TestProgressHeartbeat:
     def test_exception_in_training_becomes_error_event(self, training_env):
         with patch.object(training_service, "start_training", side_effect=RuntimeError("boom")):
             events = list(
-                training_service.run_training_stream(MODEL_ID, "d/s", HYPERPARAMS, sample_count=100, poll_sec=0.01)
+                training_service.run_training_stream(
+                    MODEL_ID, "d/s", HYPERPARAMS, sample_count=100, poll_sec=0.01
+                )
             )
 
         assert events[-1]["finished"] is True

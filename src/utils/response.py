@@ -18,6 +18,7 @@ def build_response(status: str, message: str, **extra: Any) -> Dict[str, Any]:
 
     Raises:
         ValueError: status 不是合法值。
+
     """
     if status not in ALLOWED_STATUSES:
         raise ValueError(f"status 必須是 {ALLOWED_STATUSES} 其中之一，收到：{status!r}")

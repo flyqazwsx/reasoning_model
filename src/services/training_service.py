@@ -633,9 +633,7 @@ def _stage(report: ProgressCallback, text: str) -> None:
     report({"status": "success", "message": text, "log_line": text})
 
 
-def _load_training_dataset(
-    dataset_id: str, sample_count: int, tokenizer: Any = None
-) -> Any:
+def _load_training_dataset(dataset_id: str, sample_count: int, tokenizer: Any = None) -> Any:
     """以 ``train[:N]`` 載入資料集並切出驗證集；實際筆數不足時給出明確錯誤。"""
     dataset = download_dataset(
         dataset_id=dataset_id, train_val_split=0.1, sample_count=sample_count
@@ -677,9 +675,7 @@ def _build_trainer(
 ) -> Any:
     """建立 SFTTrainer：進度回呼固定安裝，有驗證集時加上早停。"""
     has_validation = "validation" in dataset
-    config = SFTConfig(
-        **build_training_config(hp, CHECKPOINTS_DIR / job_id, has_validation)
-    )
+    config = SFTConfig(**build_training_config(hp, CHECKPOINTS_DIR / job_id, has_validation))
     callbacks: List[Any] = [ProgressReportCallback(job_id, report)]
     if has_validation:
         callbacks.append(
