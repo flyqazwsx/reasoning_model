@@ -10,3 +10,11 @@ unsloth_compiled_cache
 
 # Playwright MCP 暫存
 .playwright-mcp/
+
+# Python 編譯快取
+__pycache__/
+*.py[cod]
+
+# 測試覆蓋率
+.coverage
+htmlcov/
