@@ -97,17 +97,17 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 測試（先寫，先確認失敗）⚠️
 
-- [ ] T032 [P] [US2] 新增 `tests/unit/test_think_parser.py`：完整 `<think>…</think>答案`；未閉合（思考中）；無標記（全視為答案）；多個標記；空輸入
-- [ ] T033 [P] [US2] 修改 `tests/unit/test_inference_service.py`：串流 generator 逐步 yield `thinking_text`／`answer_text`；`max_new_tokens` 限制輸出長度；無模型時回傳 `error` 並提示先下載；記錄寫入 `model_kind="base"`
-- [ ] T034 [P] [US2] 修改 `tests/contract/test_gradio_events_002.py`：推論按鈕在未下載模型時 `interactive=False`
-- [ ] T035 [P] [US2] 新增 `tests/integration/test_base_inference_gpu.py`（`@pytest.mark.gpu`）：載入推薦模型、串流生成、峰值 VRAM ≤ 12GB
+- [X] T032 [P] [US2] 新增 `tests/unit/test_think_parser.py`：完整 `<think>…</think>答案`；未閉合（思考中）；無標記（全視為答案）；多個標記；空輸入
+- [X] T033 [P] [US2] 修改 `tests/unit/test_inference_service.py`：串流 generator 逐步 yield `thinking_text`／`answer_text`；`max_new_tokens` 限制輸出長度；無模型時回傳 `error` 並提示先下載；記錄寫入 `model_kind="base"`
+- [X] T034 [P] [US2] 修改 `tests/contract/test_gradio_events_002.py`：推論按鈕在未下載模型時 `interactive=False`
+- [X] T035 [P] [US2] 新增 `tests/integration/test_base_inference_gpu.py`（`@pytest.mark.gpu`）：載入推薦模型、串流生成、峰值 VRAM ≤ 12GB
 
 ### 實作
 
-- [ ] T036 [P] [US2] **新增** `src/utils/think_parser.py`：`split_thinking(text) -> (thinking, answer, thinking_done)`
-- [ ] T037 [US2] **修改** `src/services/inference_service.py`：`run_base_inference` 改為 generator 串流（`TextIteratorStreamer`），套用 `split_thinking`，寫入新欄位；函式維持 < 20 行，必要時拆出 helper
-- [ ] T038 [US2] **修改** `src/ui/tabs/inference_tab.py`：兩個輸出區（思考過程／最終答案；無思考標記時思考區顯示「此模型未輸出思考過程」）、串流更新、無模型時按鈕灰色並提示
-- [ ] T039 [US2] 執行 T032～T035 轉綠（GPU 測試於有卡的環境執行）
+- [X] T036 [P] [US2] **新增** `src/utils/think_parser.py`：`split_thinking(text) -> (thinking, answer, thinking_done)`
+- [X] T037 [US2] **修改** `src/services/inference_service.py`：`run_base_inference` 改為 generator 串流（`TextIteratorStreamer`），套用 `split_thinking`，寫入新欄位；函式維持 < 20 行，必要時拆出 helper
+- [X] T038 [US2] **修改** `src/ui/tabs/inference_tab.py`：兩個輸出區（思考過程／最終答案；無思考標記時思考區顯示「此模型未輸出思考過程」）、串流更新、無模型時按鈕灰色並提示
+- [X] T039 [US2] 執行 T032～T035 轉綠（GPU 測試於有卡的環境執行）
 
 **Checkpoint**: US1 + US2 皆可獨立運作
 

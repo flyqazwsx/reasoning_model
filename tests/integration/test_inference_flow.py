@@ -1,229 +1,94 @@
 """
 推論流程整合測試
 
-測試完整的基底模型推論流程，包括模型載入、推論執行、記錄保存
+以假模型走完整的基底推論流程：快取檢查 → 載入 → 串流生成 → 解析思考 → 寫入記錄
 """
 
-import pytest
-from unittest.mock import patch, Mock
-from src.services.inference_service import run_base_inference
-from src.services.model_service import download_model
-from src.config import INFERENCE_LOGS_DB_PATH
 import sqlite3
+from unittest.mock import patch
+
+import pytest
+
+from src.services import inference_service
+from src.services.inference_service import run_base_inference
+from src.utils.database_init import (
+    INFERENCE_LOGS_DB_SCHEMAS,
+    INFERENCE_LOGS_MIGRATIONS,
+    init_database,
+)
+from tests.fakes import THINK_TOKEN_IDS, THINK_VOCAB, FakeModel, FakeTokenizer
+
+
+@pytest.fixture
+def fake_env(tmp_path):
+    """假模型 + 暫存資料庫；回傳 (model, db_path)"""
+    db_path = tmp_path / "inference_logs.db"
+    init_database(db_path, INFERENCE_LOGS_DB_SCHEMAS, INFERENCE_LOGS_MIGRATIONS)
+    model = FakeModel(THINK_TOKEN_IDS)
+    tokenizer = FakeTokenizer(THINK_VOCAB)
+    inference_service._model_cache.clear()
+    with (
+        patch.object(inference_service, "find_cached_model", return_value="/fake/snapshot"),
+        patch.object(inference_service, "load_model_4bit", return_value=(model, tokenizer)),
+        patch.object(inference_service, "enable_inference_mode", side_effect=lambda m: m),
+        patch.object(inference_service, "INFERENCE_LOGS_DB_PATH", db_path),
+    ):
+        yield model, db_path
+    inference_service._model_cache.clear()
+
+
+def _read_records(db_path):
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT model_type, input_prompt, thinking_text, answer_text FROM inference_records"
+    ).fetchall()
+    conn.close()
+    return rows
 
 
 class TestBaseModelInferenceFlow:
-    """測試基底模型推論完整流程"""
+    def test_end_to_end_streams_and_saves_record(self, fake_env):
+        _, db_path = fake_env
 
-    @patch('src.services.inference_service.load_model_4bit')
-    @patch('src.services.inference_service.AutoTokenizer')
-    @patch('src.services.inference_service.save_inference_record')
-    def test_base_model_inference_end_to_end(
-        self, mock_save, mock_tokenizer_class, mock_load_model
-    ):
-        """測試端到端推論流程"""
-        # Mock tokenizer
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3, 4, 5]  # 5 input tokens
-        mock_tokenizer.decode.return_value = "這是模型生成的回應。"
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+        chunks = list(run_base_inference("test/model-7b", "請解釋量子力學。", max_new_tokens=100))
 
-        # Mock model
-        mock_model = Mock()
-        mock_model.generate.return_value = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]  # 10 output tokens
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
+        assert chunks[-1]["finished"] is True
+        assert chunks[-1]["answer_text"] == "答案"
+        assert _read_records(db_path) == [("base", "請解釋量子力學。", "我想", "答案")]
 
-        # 執行推論
-        result = run_base_inference(
-            model_id="test/model-7b",
-            prompt="請解釋量子力學。",
-            max_new_tokens=100,
-            temperature=0.7,
-            top_p=0.9,
-            save_to_db=True,
-        )
+    def test_failed_inference_does_not_save_record(self, fake_env):
+        model, db_path = fake_env
+        model.error = RuntimeError("CUDA out of memory")
+        model.token_ids = [1, 2, 3, 4]
 
-        # 驗證結果
-        assert result["output"] == "這是模型生成的回應。"
-        assert result["input_tokens"] == 5
-        assert result["output_tokens"] == 10
-        assert "inference_time_sec" in result
+        with patch.object(inference_service, "clear_gpu_cache"):
+            chunks = list(run_base_inference("test/model-7b", "Q"))
 
-        # 驗證記錄被保存
-        mock_save.assert_called_once()
+        assert chunks[-1]["status"] == "error"
+        assert _read_records(db_path) == []
 
-    @patch('src.services.inference_service.load_model_4bit')
-    @patch('src.services.inference_service.AutoTokenizer')
-    def test_base_inference_with_different_temperatures(
-        self, mock_tokenizer_class, mock_load_model
-    ):
-        """測試不同 temperature 參數的推論"""
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3]
-        mock_tokenizer.decode.return_value = "Response"
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+    @pytest.mark.parametrize("temperature", [0.1, 1.5])
+    def test_temperature_is_forwarded(self, fake_env, temperature):
+        model, _ = fake_env
 
-        mock_model = Mock()
-        mock_model.generate.return_value = [[1, 2, 3, 4]]
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
+        list(run_base_inference("test/model", "Test", temperature=temperature))
 
-        # Temperature 0.1 (更確定性)
-        result_low = run_base_inference(
-            model_id="test/model",
-            prompt="Test",
-            max_new_tokens=50,
-            temperature=0.1,
-        )
+        assert model.generate_kwargs["temperature"] == temperature
 
-        # Temperature 1.5 (更隨機)
-        result_high = run_base_inference(
-            model_id="test/model",
-            prompt="Test",
-            max_new_tokens=50,
-            temperature=1.5,
-        )
+    def test_token_limit_and_repetition_penalty_are_forwarded(self, fake_env):
+        model, _ = fake_env
 
-        # 兩者都應成功
-        assert result_low["output"] is not None
-        assert result_high["output"] is not None
+        list(run_base_inference("test/model", "Test", max_new_tokens=50, repetition_penalty=1.2))
 
-    @patch('src.services.inference_service.load_model_4bit')
-    @patch('src.services.inference_service.AutoTokenizer')
-    def test_base_inference_token_limit_enforcement(
-        self, mock_tokenizer_class, mock_load_model
-    ):
-        """測試 token 限制強制執行"""
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3]
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+        assert model.generate_kwargs["max_new_tokens"] == 50
+        assert model.generate_kwargs["repetition_penalty"] == 1.2
 
-        mock_model = Mock()
-        # 模擬生成恰好 50 個新 tokens
-        mock_model.generate.return_value = [[1, 2, 3] + list(range(50))]
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
+    def test_model_is_loaded_only_once(self, fake_env):
+        with patch.object(
+            inference_service, "load_model_4bit", wraps=inference_service.load_model_4bit
+        ) as load:
+            load.return_value = (FakeModel(THINK_TOKEN_IDS), FakeTokenizer(THINK_VOCAB))
+            list(run_base_inference("test/model", "第一次"))
+            list(run_base_inference("test/model", "第二次"))
 
-        result = run_base_inference(
-            model_id="test/model",
-            prompt="Test",
-            max_new_tokens=50,
-        )
-
-        # 驗證 generate 被呼叫時的 max_new_tokens 參數
-        call_kwargs = mock_model.generate.call_args[1]
-        assert call_kwargs["max_new_tokens"] == 50
-
-    @patch('src.services.inference_service.load_model_4bit')
-    @patch('src.services.inference_service.AutoTokenizer')
-    @patch('src.services.inference_service.torch')
-    def test_inference_performance_tracking(
-        self, mock_torch, mock_tokenizer_class, mock_load_model
-    ):
-        """測試推論效能追蹤"""
-        # Mock CUDA
-        mock_torch.cuda.is_available.return_value = True
-        mock_torch.cuda.max_memory_allocated.return_value = 10 * (1024 ** 3)
-
-        # Mock tokenizer and model
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3]
-        mock_tokenizer.decode.return_value = "Response"
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-
-        mock_model = Mock()
-        mock_model.generate.return_value = [[1, 2, 3, 4, 5]]
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
-
-        # 執行推論
-        result = run_base_inference(
-            model_id="test/model",
-            prompt="Test prompt",
-            max_new_tokens=100,
-        )
-
-        # 驗證效能指標
-        assert "inference_time_sec" in result
-        assert "vram_used_gb" in result
-        assert "tokens_per_second" in result
-        assert result["inference_time_sec"] > 0
-
-    @patch('src.services.inference_service.load_model_4bit')
-    @patch('src.services.inference_service.AutoTokenizer')
-    def test_inference_with_repetition_penalty(
-        self, mock_tokenizer_class, mock_load_model
-    ):
-        """測試使用 repetition_penalty 參數"""
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3]
-        mock_tokenizer.decode.return_value = "Varied response without repetition"
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-
-        mock_model = Mock()
-        mock_model.generate.return_value = [[1, 2, 3, 4, 5, 6]]
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
-
-        result = run_base_inference(
-            model_id="test/model",
-            prompt="Tell me a story",
-            max_new_tokens=100,
-            repetition_penalty=1.2,  # 降低重複
-        )
-
-        # 驗證 repetition_penalty 被傳遞
-        call_kwargs = mock_model.generate.call_args[1]
-        assert call_kwargs["repetition_penalty"] == 1.2
-        assert result["output"] is not None
-
-    @patch('src.services.inference_service.load_model_4bit')
-    @patch('src.services.inference_service.AutoTokenizer')
-    def test_inference_streaming_mode(
-        self, mock_tokenizer_class, mock_load_model
-    ):
-        """測試串流模式推論"""
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3]
-        mock_tokenizer.decode.side_effect = [
-            "Hello", "Hello world", "Hello world!", "Hello world! How"
-        ]
-        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
-
-        mock_model = Mock()
-        # 模擬串流生成（返回逐步增長的 token 序列）
-        mock_model.generate.return_value = [[1, 2, 3, 4]]
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
-
-        result_generator = run_base_inference(
-            model_id="test/model",
-            prompt="Test",
-            max_new_tokens=50,
-            stream=True,
-        )
-
-        # 驗證是否為可迭代物件
-        assert hasattr(result_generator, '__iter__')
-
-    @patch('src.services.inference_service.load_model_4bit')
-    def test_inference_model_loading_cache(self, mock_load_model):
-        """測試模型載入快取"""
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_tokenizer.encode.return_value = [1, 2, 3]
-        mock_tokenizer.decode.return_value = "Response"
-        mock_model.generate.return_value = [[1, 2, 3, 4]]
-        mock_load_model.return_value = (mock_model, mock_tokenizer)
-
-        # 第一次推論
-        run_base_inference(
-            model_id="test/model",
-            prompt="First inference",
-            max_new_tokens=50,
-        )
-
-        # 第二次推論（相同模型）
-        run_base_inference(
-            model_id="test/model",
-            prompt="Second inference",
-            max_new_tokens=50,
-        )
-
-        # 模型應該只載入一次（如果有快取機制）
-        # 注意：實際快取實作需要在 inference_service 中加入
+        assert load.call_count == 1

@@ -207,3 +207,103 @@ class TestModelDownloadEvent:
         assert_contract_shape(response)
         assert response["status"] == "error"
         assert_error_has_next_step(response)
+
+
+class TestInferenceTabButtonState:
+    """基底推論分頁：推論按鈕在未下載模型時 interactive=False（T034）"""
+
+    @pytest.fixture
+    def handlers(self):
+        import gradio as gr
+
+        from src.ui.tabs import inference_tab
+
+        with gr.Blocks() as demo:
+            with gr.Tabs():
+                inference_tab.create_inference_tab()
+        return {fn.fn.__name__: fn.fn for fn in demo.fns.values()}
+
+    def test_button_disabled_when_model_not_downloaded(self, handlers):
+        with patch("src.ui.tabs.inference_tab.check_inference_ready") as ready:
+            ready.return_value = {
+                "status": "error",
+                "message": "尚未下載此模型，請先到「模型與資料集準備」分頁下載",
+                "infer_button_interactive": False,
+            }
+            text, button = handlers["handle_model_select"]("org/missing")
+
+        assert button["interactive"] is False
+        assert "下載" in text
+
+    def test_button_enabled_when_model_downloaded(self, handlers):
+        with patch("src.ui.tabs.inference_tab.check_inference_ready") as ready:
+            ready.return_value = {
+                "status": "success",
+                "message": "模型已就緒，可以推論",
+                "infer_button_interactive": True,
+            }
+            _, button = handlers["handle_model_select"]("org/model")
+
+        assert button["interactive"] is True
+
+    def test_empty_selection_disables_button(self, handlers):
+        _, button = handlers["handle_model_select"]("")
+
+        assert button["interactive"] is False
+
+    def test_stream_handler_shows_no_thinking_notice(self, handlers):
+        final = {
+            "status": "success",
+            "message": "推論完成",
+            "thinking_text": "",
+            "answer_text": "直接回答",
+            "finished": True,
+            "input_tokens": 3,
+            "output_tokens": 4,
+            "inference_time_sec": 0.5,
+            "tokens_per_second": 8.0,
+            "vram_used_gb": 4.0,
+        }
+        with patch("src.ui.tabs.inference_tab.run_base_inference", return_value=iter([final])):
+            outputs = list(
+                handlers["handle_inference_execute"]("org/model", "Q", 64, 0.7, 0.9, 50, 1.1)
+            )
+
+        thinking, answer, stats, _, button = outputs[-1]
+        assert thinking == "此模型未輸出思考過程"
+        assert answer == "直接回答"
+        assert "tokens/秒" in stats
+        assert button["interactive"] is True
+
+    def test_stream_handler_locks_button_while_running(self, handlers):
+        working = {
+            "status": "success",
+            "message": "思考中…",
+            "thinking_text": "想",
+            "answer_text": "",
+            "finished": False,
+        }
+        with patch("src.ui.tabs.inference_tab.run_base_inference", return_value=iter([working])):
+            outputs = list(
+                handlers["handle_inference_execute"]("org/model", "Q", 64, 0.7, 0.9, 50, 1.1)
+            )
+
+        assert outputs[0][0] == "想"
+        assert outputs[0][4]["interactive"] is False
+
+    def test_stream_handler_shows_error_notification(self, handlers):
+        error = {
+            "status": "error",
+            "message": "尚未下載此模型，請先到「模型與資料集準備」分頁下載",
+            "thinking_text": "",
+            "answer_text": "",
+            "finished": True,
+        }
+        with patch("src.ui.tabs.inference_tab.run_base_inference", return_value=iter([error])):
+            outputs = list(
+                handlers["handle_inference_execute"]("org/model", "Q", 64, 0.7, 0.9, 50, 1.1)
+            )
+
+        _, _, stats, notice, _ = outputs[-1]
+        assert stats == "推論失敗"
+        assert notice["visible"] is True

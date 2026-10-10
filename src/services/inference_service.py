@@ -4,19 +4,24 @@
 處理基底模型和微調模型的推論執行、參數驗證、記錄保存
 """
 
+import json
 import logging
+import threading
 import time
-from typing import Tuple, Optional, Dict, Any, Generator
+import uuid
 from datetime import datetime
-from transformers import AutoTokenizer
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+
 import torch
+from transformers import AutoTokenizer, TextIteratorStreamer
 
-from src.models.inference_record import InferenceRecord
-from src.lib.unsloth_wrapper import load_model_4bit, enable_inference_mode
-from src.config import INFERENCE_LOGS_DB_PATH, CACHE_DIR
-import sqlite3
-
+from src.config import CACHE_DIR, INFERENCE_LOGS_DB_PATH
+from src.lib.unsloth_wrapper import enable_inference_mode, load_model_4bit
+from src.services.model_service import find_cached_model
 from src.utils.database_init import connect_database
+from src.utils.gpu_monitor import clear_gpu_cache
+from src.utils.response import build_response
+from src.utils.think_parser import split_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +89,7 @@ def count_tokens(text: str, model_id: str) -> int:
     """
     try:
         tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            cache_dir=CACHE_DIR,
-            trust_remote_code=True
+            model_id, cache_dir=CACHE_DIR, trust_remote_code=True
         )
         tokens = tokenizer.encode(text, add_special_tokens=True)
         return len(tokens)
@@ -122,6 +125,191 @@ def load_model_with_cache(model_id: str) -> Tuple[Any, Any]:
     return model, tokenizer
 
 
+NO_MODEL_MESSAGE = "尚未下載此模型，請先到「模型與資料集準備」分頁下載"
+MAX_RECORD_VRAM_GB = 12.0  # inference_records.vram_used_gb 有 <= 12 的 CHECK 約束
+
+
+def _chunk(
+    status: str = "success",
+    message: str = "",
+    thinking_text: str = "",
+    answer_text: str = "",
+    finished: bool = False,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """建立 E-06 串流事件的單次輸出（含 thinking_text、answer_text、finished）。"""
+    return build_response(
+        status,
+        message,
+        thinking_text=thinking_text,
+        answer_text=answer_text,
+        finished=finished,
+        **extra,
+    )
+
+
+def _error_chunk(message: str, suggestion: str = "") -> Dict[str, Any]:
+    extra = {"suggestion": suggestion} if suggestion else {}
+    return _chunk("error", message, finished=True, **extra)
+
+
+def check_inference_ready(model_id: Optional[str]) -> Dict[str, Any]:
+    """檢查模型是否已下載，決定推論按鈕可否按下（未下載時按鈕灰色並提示）。
+
+    Args:
+        model_id: Hugging Face 模型代號；空值視為尚未選擇。
+
+    Returns:
+        ``{status, message, infer_button_interactive}``。
+    """
+    if not model_id or not find_cached_model(model_id):
+        return build_response("error", NO_MODEL_MESSAGE, infer_button_interactive=False)
+    return build_response("success", "模型已就緒，可以推論", infer_button_interactive=True)
+
+
+def _check_request(model_id: str, prompt: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """推論前檢查；有問題時回傳可直接 yield 的錯誤事件，沒問題回傳 None。"""
+    if not prompt or not prompt.strip():
+        return _error_chunk("提示詞不能為空", "請輸入有效的提示詞後再執行推論")
+    is_valid, message = validate_inference_params(params)
+    if not is_valid:
+        return _error_chunk(f"參數無效：{message}", "請調整生成參數後重新執行")
+    if not find_cached_model(model_id):
+        return _error_chunk(NO_MODEL_MESSAGE)
+    return None
+
+
+def _encode_prompt(model: Any, tokenizer: Any, prompt: str) -> Dict[str, Any]:
+    """套用聊天模板（若模型有）並搬到模型所在裝置。"""
+    if getattr(tokenizer, "chat_template", None):
+        encoded = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            return_tensors="pt",
+            return_dict=True,
+        )
+        inputs = dict(encoded)
+    else:
+        inputs = dict(tokenizer(prompt, return_tensors="pt"))
+    return {key: value.to(model.device) for key, value in inputs.items()}
+
+
+def _build_generation_kwargs(tokenizer: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {
+        "max_new_tokens": params["max_new_tokens"],
+        "repetition_penalty": params["repetition_penalty"],
+        "pad_token_id": tokenizer.eos_token_id,
+        "do_sample": params["temperature"] > 0,
+    }
+    if kwargs["do_sample"]:
+        kwargs.update(
+            temperature=params["temperature"], top_p=params["top_p"], top_k=params["top_k"]
+        )
+    return kwargs
+
+
+def _generate_stream(
+    model: Any, tokenizer: Any, inputs: Dict[str, Any], gen_kwargs: Dict[str, Any]
+) -> Iterator[str]:
+    """在背景執行緒生成，逐步 yield 累積文字；生成中的錯誤會在串流結束後重新拋出。"""
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    errors: List[BaseException] = []
+
+    def worker() -> None:
+        try:
+            with torch.no_grad():
+                model.generate(**inputs, streamer=streamer, **gen_kwargs)
+        except BaseException as error:  # noqa: BLE001 - 需要原樣帶回主執行緒
+            errors.append(error)
+            streamer.end()  # 解除主執行緒的等待
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    text = ""
+    for piece in streamer:
+        text += piece
+        yield text
+    thread.join()
+    if errors:
+        raise errors[0]
+
+
+def _peak_vram_gb() -> float:
+    if not torch.cuda.is_available():
+        return 0.0
+    peak = torch.cuda.max_memory_allocated() / (1024**3)
+    torch.cuda.reset_peak_memory_stats()
+    return float(peak)
+
+
+def _collect_stats(
+    tokenizer: Any, inputs: Dict[str, Any], text: str, elapsed: float
+) -> Dict[str, Any]:
+    output_tokens = len(tokenizer.encode(text, add_special_tokens=False))
+    return {
+        "input_tokens": int(inputs["input_ids"].shape[-1]),
+        "output_tokens": output_tokens,
+        "inference_time_sec": elapsed,
+        "tokens_per_second": output_tokens / elapsed,
+        "vram_used_gb": _peak_vram_gb(),
+    }
+
+
+def _save_base_record(
+    model_id: str,
+    prompt: str,
+    text: str,
+    split: Tuple[str, str],
+    stats: Dict[str, Any],
+    params: Dict[str, Any],
+) -> None:
+    save_inference_record(
+        model_id=model_id,
+        model_type="base",
+        prompt=prompt,
+        output=text,
+        thinking_text=split[0],
+        answer_text=split[1],
+        is_streaming=True,
+        input_tokens=stats["input_tokens"],
+        output_tokens=stats["output_tokens"],
+        inference_time_sec=stats["inference_time_sec"],
+        vram_used_gb=stats["vram_used_gb"],
+        **params,
+    )
+
+
+def _generate_response(
+    model: Any, tokenizer: Any, model_id: str, prompt: str, params: Dict[str, Any], save: bool
+) -> Iterator[Dict[str, Any]]:
+    """串流生成並解析思考標記；結束時 yield 含統計的最終事件並寫入記錄。"""
+    inputs = _encode_prompt(model, tokenizer, prompt)
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    gen_kwargs = _build_generation_kwargs(tokenizer, params)
+    started, text = time.time(), ""
+    for text in _generate_stream(model, tokenizer, inputs, gen_kwargs):
+        thinking, answer, done = split_thinking(text)
+        yield _chunk("success", "生成中…" if done else "思考中…", thinking, answer)
+
+    thinking, answer, _ = split_thinking(text)
+    stats = _collect_stats(tokenizer, inputs, text, max(time.time() - started, 1e-6))
+    if save:
+        _save_base_record(model_id, prompt, text, (thinking, answer), stats, params)
+    message = f"推論完成（{stats['tokens_per_second']:.1f} tokens/s）"
+    yield _chunk("success", message, thinking, answer, finished=True, **stats)
+
+
+def _runtime_error_chunk(error: RuntimeError, max_new_tokens: int) -> Dict[str, Any]:
+    if "out of memory" in str(error).lower():
+        clear_gpu_cache()
+        return _error_chunk(
+            f"VRAM 不足，無法完成推論（max_new_tokens={max_new_tokens}）",
+            "請降低 max_new_tokens 後重新執行，或改用較小的模型",
+        )
+    return _error_chunk(f"推論執行失敗：{error}", "請檢查模型是否完整下載後重新執行")
+
+
 def run_base_inference(
     model_id: str,
     prompt: str,
@@ -130,35 +318,25 @@ def run_base_inference(
     top_p: float = 0.9,
     top_k: int = 50,
     repetition_penalty: float = 1.0,
-    stream: bool = False,
-    save_to_db: bool = False,
-) -> Dict[str, Any]:
-    """
-    執行基底模型推論
+    save_to_db: bool = True,
+) -> Iterator[Dict[str, Any]]:
+    """以未微調的基底模型串流推論（E-06 的基底版本）。
 
     Args:
-        model_id: Hugging Face model ID
-        prompt: 輸入提示詞
-        max_new_tokens: 最大生成 token 數量
-        temperature: 溫度參數
-        top_p: nucleus sampling 參數
-        top_k: top-k sampling 參數
-        repetition_penalty: 重複懲罰
-        stream: 是否使用串流模式
-        save_to_db: 是否保存到資料庫
+        model_id: Hugging Face 模型代號（須已下載）。
+        prompt: 輸入提示詞。
+        max_new_tokens: 最大生成 token 數。
+        temperature: 溫度；0 代表不取樣（貪婪解碼）。
+        top_p: nucleus sampling 參數。
+        top_k: top-k sampling 參數。
+        repetition_penalty: 重複懲罰。
+        save_to_db: 完成後是否寫入推論記錄。
 
-    Returns:
-        推論結果字典
-
-    Raises:
-        ValueError: 如果參數無效或提示詞為空
-        RuntimeError: 如果推論失敗（OOM 等）
+    Yields:
+        ``{status, message, thinking_text, answer_text, finished}``；
+        最後一筆 ``finished=True``，成功時另含 token 數、耗時、速度與 VRAM 峰值。
+        所有錯誤都以 ``status="error"`` 事件回報，不會拋出例外。
     """
-    # 驗證提示詞
-    if not prompt or not prompt.strip():
-        raise ValueError("提示詞不能為空")
-
-    # 驗證參數
     params = {
         "max_new_tokens": max_new_tokens,
         "temperature": temperature,
@@ -166,100 +344,21 @@ def run_base_inference(
         "top_k": top_k,
         "repetition_penalty": repetition_penalty,
     }
-    is_valid, message = validate_inference_params(params)
-    if not is_valid:
-        raise ValueError(f"參數驗證失敗: {message}")
+    rejected = _check_request(model_id, prompt, params)
+    if rejected is not None:
+        yield rejected
+        return
 
-    # 載入模型
-    model, tokenizer = load_model_with_cache(model_id)
-
-    # 計算輸入 tokens
-    input_tokens = count_tokens(prompt, model_id)
-
-    # 記錄開始時間
-    start_time = time.time()
-
-    # 編碼輸入
-    inputs = tokenizer(prompt, return_tensors="pt")
-
-    if torch.cuda.is_available():
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
-
-    # 執行推論
+    yield _chunk("success", "載入模型中，首次載入需要一些時間…")
     try:
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                repetition_penalty=repetition_penalty,
-                do_sample=temperature > 0,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-
-        # 解碼輸出
-        output_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        # 計算推論時間
-        inference_time = time.time() - start_time
-
-        # 計算輸出 tokens
-        output_tokens = len(outputs[0]) - len(inputs["input_ids"][0])
-
-        # 監控 VRAM 使用
-        vram_used_gb = 0.0
-        if torch.cuda.is_available():
-            vram_used_gb = torch.cuda.max_memory_allocated() / (1024 ** 3)
-            torch.cuda.reset_peak_memory_stats()
-
-        # 構建結果
-        result = {
-            "output": output_text,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "inference_time_sec": inference_time,
-            "vram_used_gb": vram_used_gb,
-            "tokens_per_second": output_tokens / inference_time if inference_time > 0 else 0,
-        }
-
-        # 保存到資料庫
-        if save_to_db:
-            save_inference_record(
-                model_id=model_id,
-                model_type="base",
-                prompt=prompt,
-                output=output_text,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                inference_time_sec=inference_time,
-                vram_used_gb=vram_used_gb,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                repetition_penalty=repetition_penalty,
-            )
-
-        logger.info(
-            f"推論完成: {output_tokens} tokens in {inference_time:.2f}s "
-            f"({result['tokens_per_second']:.1f} tokens/s)"
-        )
-
-        return result
-
-    except RuntimeError as e:
-        error_msg = str(e).lower()
-        if "out of memory" in error_msg or "oom" in error_msg:
-            logger.error(f"VRAM 不足: {e}")
-            raise RuntimeError(
-                f"VRAM 不足，請嘗試減少 max_new_tokens 或使用較小的模型。"
-                f"當前設置: max_new_tokens={max_new_tokens}"
-            )
-        else:
-            logger.error(f"推論失敗: {e}")
-            raise
+        model, tokenizer = load_model_with_cache(model_id)
+        yield from _generate_response(model, tokenizer, model_id, prompt, params, save_to_db)
+    except RuntimeError as error:
+        logger.error(f"推論失敗: {error}")
+        yield _runtime_error_chunk(error, max_new_tokens)
+    except Exception as error:  # noqa: BLE001 - 事件層不應讓例外中斷 UI
+        logger.error(f"推論執行時發生未預期錯誤: {error}")
+        yield _error_chunk(f"推論執行失敗：{error}", "請檢查模型與 Unsloth 是否已正確安裝")
 
 
 def save_inference_record(
@@ -272,7 +371,10 @@ def save_inference_record(
     inference_time_sec: float,
     vram_used_gb: float,
     adapter_id: Optional[str] = None,
-    **kwargs
+    thinking_text: Optional[str] = None,
+    answer_text: Optional[str] = None,
+    compare_group_id: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """
     保存推論記錄到資料庫
@@ -281,166 +383,68 @@ def save_inference_record(
         model_id: 模型 ID
         model_type: 模型類型 ("base" 或 "fine_tuned")
         prompt: 輸入提示詞
-        output: 模型輸出
+        output: 模型完整輸出（含思考標記）
         input_tokens: 輸入 token 數
         output_tokens: 輸出 token 數
-        inference_time_sec: 推論時間
-        vram_used_gb: VRAM 使用量
+        inference_time_sec: 推論時間（資料庫要求大於 0，過小時以極小值取代）
+        vram_used_gb: VRAM 使用量（資料庫要求不超過 12，超過時以 12 記錄）
         adapter_id: LoRA adapter ID（可選）
-        **kwargs: 其他參數（如 temperature, top_p 等）
+        thinking_text: 解析出的思考過程
+        answer_text: 解析出的最終答案
+        compare_group_id: 並排對照的群組 ID（兩筆記錄共用）
+        **kwargs: 其他參數（如 temperature, top_p, is_streaming 等）
 
     Returns:
         記錄 ID (UUID)
     """
-    import uuid
-    import json
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # 生成唯一 record_id
     record_id = str(uuid.uuid4())
-
-    # 計算總 tokens
-    total_tokens = input_tokens + output_tokens
-
-    # 打包生成參數為 JSON
-    generation_params = json.dumps({
-        "max_new_tokens": kwargs.get("max_new_tokens", 512),
-        "temperature": kwargs.get("temperature", 0.7),
-        "top_p": kwargs.get("top_p", 0.9),
-        "top_k": kwargs.get("top_k", 50),
-        "repetition_penalty": kwargs.get("repetition_penalty", 1.0),
-        "do_sample": kwargs.get("do_sample", True),
-    })
-
-    cursor.execute(
-        """
-        INSERT INTO inference_records (
-            record_id, timestamp, model_type, base_model_id, adapter_id,
-            input_prompt, output_text, generation_params,
-            response_time_sec, input_tokens, output_tokens, total_tokens,
-            vram_used_gb, is_streaming, is_exported
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            record_id,
-            datetime.now().isoformat(),
-            model_type,
-            model_id,  # 對應 base_model_id
-            adapter_id,
-            prompt,  # 對應 input_prompt
-            output,  # 對應 output_text
-            generation_params,
-            inference_time_sec,  # 對應 response_time_sec
-            input_tokens,
-            output_tokens,
-            total_tokens,
-            vram_used_gb,
-            kwargs.get("is_streaming", False),
-            False,  # is_exported
-        ),
+    generation_params = json.dumps(
+        {
+            "max_new_tokens": kwargs.get("max_new_tokens", 512),
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "top_k": kwargs.get("top_k", 50),
+            "repetition_penalty": kwargs.get("repetition_penalty", 1.0),
+            "do_sample": kwargs.get("temperature", 0.7) > 0,
+        }
     )
 
-    conn.commit()
-    conn.close()
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO inference_records (
+                record_id, timestamp, model_type, base_model_id, adapter_id,
+                input_prompt, output_text, generation_params,
+                response_time_sec, input_tokens, output_tokens, total_tokens,
+                vram_used_gb, is_streaming, is_exported,
+                thinking_text, answer_text, compare_group_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record_id,
+                datetime.now().isoformat(),
+                model_type,
+                model_id,
+                adapter_id,
+                prompt,
+                output,
+                generation_params,
+                max(inference_time_sec, 1e-6),
+                input_tokens,
+                output_tokens,
+                input_tokens + output_tokens,
+                min(vram_used_gb, MAX_RECORD_VRAM_GB),
+                bool(kwargs.get("is_streaming", False)),
+                False,
+                thinking_text,
+                answer_text,
+                compare_group_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     logger.info(f"推論記錄已保存: record_id={record_id}")
-
     return record_id
-
-
-def on_inference_execute(
-    model_id: str,
-    prompt: str,
-    max_new_tokens: int = 512,
-    temperature: float = 0.7,
-    top_p: float = 0.9,
-    top_k: int = 50,
-    repetition_penalty: float = 1.0,
-    stream: bool = False,
-) -> Dict[str, Any]:
-    """
-    處理 Gradio 推論執行事件
-
-    Args:
-        model_id: 模型 ID
-        prompt: 提示詞
-        max_new_tokens: 最大生成 tokens
-        temperature: 溫度
-        top_p: nucleus sampling
-        top_k: top-k sampling
-        repetition_penalty: 重複懲罰
-        stream: 串流模式
-
-    Returns:
-        符合 contracts/gradio-events.md 契約的回應
-    """
-    try:
-        # 驗證提示詞
-        if not prompt or not prompt.strip():
-            return {
-                "status": "error",
-                "message": "提示詞不能為空，請輸入有效的提示詞。",
-            }
-
-        # 驗證參數
-        params = {
-            "max_new_tokens": max_new_tokens,
-            "temperature": temperature,
-            "top_p": top_p,
-            "top_k": top_k,
-            "repetition_penalty": repetition_penalty,
-        }
-        is_valid, message = validate_inference_params(params)
-        if not is_valid:
-            return {
-                "status": "error",
-                "message": f"參數無效: {message}",
-            }
-
-        # 執行推論
-        result = run_base_inference(
-            model_id=model_id,
-            prompt=prompt,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            stream=stream,
-            save_to_db=True,
-        )
-
-        return {
-            "status": "success",
-            "message": f"推論完成 ({result['tokens_per_second']:.1f} tokens/s)",
-            "inference_result": result,
-        }
-
-    except ValueError as e:
-        return {
-            "status": "error",
-            "message": f"參數錯誤: {str(e)}",
-        }
-
-    except RuntimeError as e:
-        error_msg = str(e)
-        if "out of memory" in error_msg.lower() or "OOM" in error_msg:
-            return {
-                "status": "error",
-                "message": f"VRAM 記憶體不足: {error_msg}",
-                "suggestion": "請嘗試減少 max_new_tokens 或使用較小的模型。",
-            }
-        else:
-            return {
-                "status": "error",
-                "message": f"推論執行失敗: {error_msg}",
-            }
-
-    except Exception as e:
-        logger.error(f"推論執行時發生未預期錯誤: {e}")
-        return {
-            "status": "error",
-            "message": f"推論執行失敗: {str(e)}",
-        }
