@@ -51,6 +51,21 @@ Technical Context 中沒有未解的 NEEDS CLARIFICATION；以下為各項技術
 - **Rationale**: 符合「思考過程」需求；`[:N]` 配合使用者自訂筆數（澄清 Q3）。注意舊 CLAUDE.md 對部分資料集的 Hub ID 標示「待確認」，須在實作時逐一驗證。
 - **Sources**: [Mixture-of-Thoughts](https://huggingface.co/datasets/open-r1/Mixture-of-Thoughts)
 
+**實測驗證記錄（2026-10-10，以 Hugging Face 公開 API 與 datasets-server 查證，未使用權杖）**
+
+| 項目 | 結果 | 處置 |
+|------|------|------|
+| `open-r1/Mixture-of-Thoughts` | 存在、公開；需指定設定 `all`／`code`／`math`／`science`；欄位 `messages`／`num_tokens`／`source`，assistant 內容含 `<think>`；`math` 子集約 0.66GB | 採用 `open-r1/Mixture-of-Thoughts/math`（優先推薦） |
+| `gsm8k` | 307 轉址到 `openai/gsm8k`；設定 `main`／`socratic`；欄位 `question`／`answer` | 改用 `openai/gsm8k/main` |
+| `kaist-ai/CoT-Collection` | 存在、公開，但以 loading script（`CoT-Collection.py`）提供，datasets 5.x 已不支援 | 自內建清單移除 |
+| `argilla/distilabel-math-preference-dpo` | 存在、公開；欄位為 `instruction`／`chosen_response`／`rejected_response`，無法對應支援的格式 | 自內建清單移除 |
+| `AM-DeepSeek-R1-Distilled-1.4M`、`LongTalk-CoT` | 專案規範未提供可用的 Hub 代號 | 不內建，可手動輸入已驗證的公開代號 |
+| `Qwen/Qwen2.5-8B-Instruct` | **不存在**（Hub 回 401 找不到） | 改用 `Qwen/Qwen2.5-7B-Instruct`（7.6B、公開） |
+| `open-r1/OpenR1-Distill-7B` | 存在、公開；7.6B 參數 | 沿用 |
+| `deepseek-ai/DeepSeek-R1-Distill-Llama-8B` | 存在、公開；8.03B 參數 | 沿用 |
+
+資料集代號格式為 `org/name` 或 `org/name/config`（第三段為 `load_dataset` 的設定名稱）。
+
 ## R7. Gradio 進度、串流與按鈕解鎖
 
 - **Decision**: Gradio 5.x Blocks；長任務使用 generator 函式 `yield` 逐步更新日誌與進度，搭配 `gr.Progress`；

@@ -6,7 +6,7 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, List
 
 # 專案根目錄
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
@@ -48,7 +48,7 @@ CUDA_DEVICE = int(os.getenv("CUDA_VISIBLE_DEVICES", "0"))
 
 # 預設支援的基底模型列表（嚴格遵守 CLAUDE.md 規定）
 # 必須使用以下 Thinking/Reasoning 蒸餾模型
-DEFAULT_BASE_MODELS = [
+DEFAULT_BASE_MODELS: List[Dict[str, Any]] = [
     {
         "model_id": "open-r1/OpenR1-Distill-7B",
         "display_name": "OpenR1 Distill 7B (推薦)",
@@ -70,12 +70,13 @@ DEFAULT_BASE_MODELS = [
         "recommended": True,
     },
     {
-        "model_id": "Qwen/Qwen2.5-8B-Instruct",
-        "display_name": "Qwen 2.5 8B Instruct",
+        # [2026-10-10] Qwen2.5 沒有 8B 版本（Hub 回 401 找不到），改用實際存在的 7B-Instruct
+        "model_id": "Qwen/Qwen2.5-7B-Instruct",
+        "display_name": "Qwen 2.5 7B Instruct",
         "architecture": "Qwen2.5",
-        "parameters": 8_000_000_000,
-        "model_size_gb": 16.0,
-        "estimated_vram_gb": 4.0,
+        "parameters": 7_600_000_000,
+        "model_size_gb": 15.2,
+        "estimated_vram_gb": 3.5,
         "description": "通用指令模型，可用於 reasoning 微調",
         "recommended": True,
     },
@@ -83,46 +84,31 @@ DEFAULT_BASE_MODELS = [
 
 # ===== 預設資料集配置 =====
 
-# 推薦的 Thinking/Reasoning 訓練資料集（嚴格遵守 CLAUDE.md 規定）
-DEFAULT_DATASETS = [
+# 推薦的 Thinking/Reasoning 訓練資料集
+# [2026-10-10] 已逐一到 Hugging Face 驗證（詳見 specs/002-unsloth-thinking-model/research.md R6）：
+# - 代號格式 org/name/config：config 為 load_dataset 的設定名稱
+# - 不存在、需授權或使用 loading script（datasets 5.x 不再支援）的項目已移除
+DEFAULT_DATASETS: List[Dict[str, Any]] = [
     {
-        "dataset_id": "gsm8k",
-        "display_name": "GSM8K (數學推理 - 測試用)",
-        "dataset_url": "https://huggingface.co/datasets/gsm8k",
+        "dataset_id": "open-r1/Mixture-of-Thoughts/math",
+        "display_name": "Open-R1 Mixture-of-Thoughts（數學，優先推薦）",
+        "dataset_url": "https://huggingface.co/datasets/open-r1/Mixture-of-Thoughts",
+        "required_fields": ["messages"],
+        "field_mapping": {"messages": "messages"},
+        "has_reasoning_field": True,  # assistant 內容以 <think>...</think> 保留完整思考鏈
+        "split": "train",
+        "description": "DeepSeek-R1 蒸餾的推理軌跡（數學子集，約 0.7GB），含完整思考鏈",
+    },
+    {
+        "dataset_id": "openai/gsm8k/main",
+        "display_name": "GSM8K（數學推理，小型測試用）",
+        "dataset_url": "https://huggingface.co/datasets/openai/gsm8k",
         "required_fields": ["question", "answer"],
         "field_mapping": {"input": "question", "output": "answer"},
+        "has_reasoning_field": False,
         "split": "train",
-        "description": "數學推理資料集，適合初期測試",
+        "description": "數學應用題與逐步解答，適合先用小樣本驗證訓練流程",
     },
-    {
-        "dataset_id": "kaist-ai/CoT-Collection",
-        "display_name": "ThoughtSource / CoT-Collection",
-        "dataset_url": "https://huggingface.co/datasets/kaist-ai/CoT-Collection",
-        "required_fields": ["source", "rationale", "target"],
-        "field_mapping": {"input": "source", "thinking": "rationale", "output": "target"},
-        "split": "train",
-        "description": "多樣化思考過程資料集，多領域推理能力",
-    },
-    {
-        "dataset_id": "argilla/distilabel-math-preference-dpo",
-        "display_name": "AM-DeepSeek-R1 相關資料",
-        "dataset_url": "https://huggingface.co/datasets/argilla/distilabel-math-preference-dpo",
-        "required_fields": ["chosen", "rejected"],
-        "field_mapping": {"input": "prompt", "output": "chosen"},
-        "split": "train",
-        "description": "DeepSeek-R1 蒸餾相關資料（數學偏好）",
-    },
-    # 注意：以下資料集ID可能需要確認或替代
-    # {
-    #     "dataset_id": "Open-R1/Mixture-of-Thoughts",  # 待確認
-    #     "display_name": "Open-R1 Mixture-of-Thoughts (優先推薦)",
-    #     "description": "推理鏈混合資料，包含完整思考鏈",
-    # },
-    # {
-    #     "dataset_id": "LongTalk-CoT",  # 待確認或使用 GSM8K 替代
-    #     "display_name": "LongTalk-CoT",
-    #     "description": "長對話形式的 Chain-of-Thought",
-    # },
 ]
 
 # ===== 訓練超參數預設值 =====
@@ -341,3 +327,14 @@ ADAPTER_OUTPUT_DIR = OUTPUTS_DIR
 # 內建評測題庫（FR-016a）
 EVAL_QUESTIONS_PATH = PROJECT_ROOT / "src" / "resources" / "eval_questions.json"
 EVAL_MIN_QUESTIONS = 10
+
+# ===== 002：US1 硬體偵測、推薦與下載 =====
+
+# 訓練時除了 4-bit 權重外的額外 VRAM（LoRA 約 0.5GB + 梯度／優化器約 0.5GB，batch=1）
+TRAINING_OVERHEAD_GB = 1.0
+
+# 下載失敗重試前的等待秒數（第 n 次重試等待 n 倍）
+DOWNLOAD_RETRY_DELAY_SEC = 2.0
+
+# 下載完成標記：只有完整下載成功才寫入，重啟後據此判斷可直接重用（SC-006）
+DOWNLOAD_MARKERS_DIR = CACHE_DIR / "download-markers"

@@ -387,3 +387,227 @@ class TestOnDatasetDownload:
         assert response["status"] == "error"
         assert "網路" in response["message"]
         assert "重新" in response["message"]
+
+
+class TestMessagesThinkMarkup:
+    """對話格式以 <think> 標記保留思考過程"""
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_messages_with_think_tag_reports_reasoning_field(self, mock_load_dataset, clean_download_state):
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.return_value = Dataset.from_dict({
+            "messages": [[
+                {"role": "user", "content": "1+1?"},
+                {"role": "assistant", "content": "<think>先加起來</think>2"},
+            ]],
+        })
+
+        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
+            response = on_dataset_download("open-r1/Mixture-of-Thoughts/math", sample_count=100)
+
+        assert response["status"] == "success"
+        assert response["dataset_info"]["has_reasoning_field"] is True
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_messages_without_think_tag_has_no_reasoning_field(self, mock_load_dataset, clean_download_state):
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.return_value = Dataset.from_dict({
+            "messages": [[
+                {"role": "user", "content": "1+1?"},
+                {"role": "assistant", "content": "2"},
+            ]],
+        })
+
+        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
+            response = on_dataset_download("org/chat", sample_count=100)
+
+        assert response["dataset_info"]["has_reasoning_field"] is False
+
+
+class TestParseDatasetId:
+    """代號拆解：org/name 不是 dataset/config"""
+
+    @pytest.mark.parametrize("dataset_id,expected", [
+        ("open-r1/Mixture-of-Thoughts", ("open-r1/Mixture-of-Thoughts", None)),
+        ("open-r1/Mixture-of-Thoughts/math", ("open-r1/Mixture-of-Thoughts", "math")),
+        ("openai/gsm8k/main", ("openai/gsm8k", "main")),
+        ("gsm8k", ("openai/gsm8k", "main")),
+        ("gsm8k/socratic", ("openai/gsm8k", "socratic")),
+    ])
+    def test_parse(self, dataset_id, expected):
+        from src.services.dataset_service import parse_dataset_id
+
+        assert parse_dataset_id(dataset_id) == expected
+
+
+class TestOnDatasetSelectedWithConfig:
+    """選擇事件需正確拆出名稱與設定（E2E 發現：org/name/config 曾被當成本機路徑）"""
+
+    @patch("src.services.dataset_service.get_db_connection")
+    @patch("src.services.dataset_service.load_dataset")
+    def test_org_name_config_is_split(self, mock_load_dataset, mock_db):
+        from src.services.dataset_service import on_dataset_selected
+
+        mock_db.return_value.cursor.return_value.fetchone.return_value = None
+        streaming = Mock()
+        streaming.take.return_value = [{"question": "Q", "answer": "A"}]
+        mock_load_dataset.return_value = streaming
+
+        response = on_dataset_selected("openai/gsm8k/main")
+
+        assert mock_load_dataset.call_args.args == ("openai/gsm8k", "main")
+        assert response["status"] == "success"
+
+    @patch("src.services.dataset_service.get_db_connection")
+    @patch("src.services.dataset_service.load_dataset")
+    def test_gated_dataset_returns_unsupported_message(self, mock_load_dataset, mock_db):
+        from src.services.dataset_service import on_dataset_selected
+
+        mock_db.return_value.cursor.return_value.fetchone.return_value = None
+        mock_load_dataset.side_effect = Exception("401 Client Error: Unauthorized")
+
+        response = on_dataset_selected("org/gated")
+
+        assert response["status"] == "error"
+        assert response["message"] == GATED_MESSAGE
+
+
+class TestEstimateDatasetSize:
+    """資料集大小估算（磁碟空間預檢用）"""
+
+    @patch("src.services.dataset_service.HfApi")
+    def test_sums_sibling_sizes(self, mock_hf_api):
+        from src.services.dataset_service import estimate_dataset_size_gb
+
+        mock_hf_api.return_value.dataset_info.return_value = Mock(
+            siblings=[Mock(size=1024**3), Mock(size=2 * 1024**3), Mock(size=None)]
+        )
+
+        assert estimate_dataset_size_gb("org/data") == pytest.approx(3.0)
+
+    @patch("src.services.dataset_service.HfApi")
+    def test_returns_none_on_failure(self, mock_hf_api):
+        from src.services.dataset_service import estimate_dataset_size_gb
+
+        mock_hf_api.return_value.dataset_info.side_effect = Exception("offline")
+
+        assert estimate_dataset_size_gb("org/data") is None
+
+
+class TestOnDatasetDownloadBranches:
+    """下載事件的其餘分支"""
+
+    @pytest.fixture(autouse=True)
+    def no_network(self, clean_download_state):
+        with patch("src.services.dataset_service.estimate_dataset_size_gb", return_value=None):
+            yield
+
+    def test_blank_id_is_rejected(self):
+        from src.services.dataset_service import on_dataset_download
+
+        assert on_dataset_download("  ")["status"] == "error"
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_disk_full_during_download(self, mock_load_dataset):
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.side_effect = OSError(28, "No space left on device")
+
+        response = on_dataset_download("org/data")
+
+        assert "磁碟空間不足" in response["message"]
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_unknown_error_is_reported(self, mock_load_dataset):
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.side_effect = RuntimeError("boom")
+
+        response = on_dataset_download("org/data")
+
+        assert response["status"] == "error"
+        assert "boom" in response["message"]
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_train_val_split_creates_validation(self, mock_load_dataset):
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.return_value = _instruction_dataset(50)
+
+        response = on_dataset_download("org/data", sample_count=100, train_val_split=0.2)
+
+        assert response["dataset_info"]["validation_samples"] == 10
+        assert response["dataset_info"]["train_samples"] == 40
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_failing_progress_callback_is_ignored(self, mock_load_dataset):
+        from src.services.dataset_service import on_dataset_download
+
+        mock_load_dataset.return_value = _instruction_dataset(5)
+
+        def broken(fraction, text):
+            raise RuntimeError("UI 掛了")
+
+        assert on_dataset_download("org/data", progress_callback=broken)["status"] == "success"
+
+
+class TestGetDatasetInfoErrors:
+    @patch("src.services.dataset_service.load_dataset")
+    def test_empty_streaming_dataset(self, mock_load_dataset):
+        streaming = Mock()
+        streaming.take.return_value = []
+        mock_load_dataset.return_value = streaming
+
+        with pytest.raises(ValueError):
+            get_dataset_info("org/empty")
+
+    @patch("src.services.dataset_service.load_dataset")
+    def test_unknown_error_becomes_value_error(self, mock_load_dataset):
+        mock_load_dataset.side_effect = RuntimeError("boom")
+
+        with pytest.raises(ValueError, match="無法取得資料集資訊"):
+            get_dataset_info("org/data")
+
+
+class TestOnDatasetSelectedBranches:
+    @patch("src.services.dataset_service.get_db_connection")
+    @patch("src.services.dataset_service.load_dataset")
+    def test_empty_dataset(self, mock_load_dataset, mock_db):
+        from src.services.dataset_service import on_dataset_selected
+
+        mock_db.return_value.cursor.return_value.fetchone.return_value = None
+        streaming = Mock()
+        streaming.take.return_value = []
+        mock_load_dataset.return_value = streaming
+
+        assert on_dataset_selected("org/empty")["status"] == "error"
+
+    @patch("src.services.dataset_service.get_db_connection")
+    @patch("src.services.dataset_service.load_dataset")
+    def test_not_found(self, mock_load_dataset, mock_db):
+        from src.services.dataset_service import on_dataset_selected
+
+        mock_db.return_value.cursor.return_value.fetchone.return_value = None
+        mock_load_dataset.side_effect = Exception("Dataset not found")
+
+        assert "找不到資料集" in on_dataset_selected("org/missing")["message"]
+
+    @patch("src.services.dataset_service.get_db_connection")
+    @patch("src.services.dataset_service.load_dataset")
+    def test_unexpected_load_error(self, mock_load_dataset, mock_db):
+        from src.services.dataset_service import on_dataset_selected
+
+        mock_db.return_value.cursor.return_value.fetchone.return_value = None
+        mock_load_dataset.side_effect = RuntimeError("boom")
+
+        assert "載入資料集失敗" in on_dataset_selected("org/data")["message"]
+
+    @patch("src.services.dataset_service.get_db_connection")
+    def test_database_error_is_reported(self, mock_db):
+        from src.services.dataset_service import on_dataset_selected
+
+        mock_db.side_effect = RuntimeError("db down")
+
+        assert on_dataset_selected("org/data")["status"] == "error"

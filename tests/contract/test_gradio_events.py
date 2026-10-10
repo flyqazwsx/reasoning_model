@@ -119,17 +119,16 @@ class TestModelSelectionEventContract:
 class TestModelDownloadEventContract:
     """測試模型下載事件契約"""
 
-    @patch('src.services.model_service.load_model_4bit')
+    @patch('src.services.model_service.get_model_info', return_value={"estimated_size_gb": 15.0})
+    @patch('src.services.model_service.snapshot_download')
     @patch('src.services.model_service.check_disk_space')
-    def test_on_model_download_click_success(self, mock_disk, mock_load):
+    def test_on_model_download_click_success(self, mock_disk, mock_download, mock_info, tmp_path):
         """測試成功下載模型的回應格式"""
         # Mock 足夠的磁碟空間
         mock_disk.return_value = (True, 100.0)  # 100GB available
 
-        # Mock 成功下載
-        mock_model = Mock()
-        mock_tokenizer = Mock()
-        mock_load.return_value = (mock_model, mock_tokenizer)
+        # Mock 成功下載（snapshot_download 回傳本機快取路徑）
+        mock_download.return_value = str(tmp_path)
 
         # Mock 進度回調
         progress_callback = Mock()
@@ -153,8 +152,9 @@ class TestModelDownloadEventContract:
             assert "download_time_sec" in download_info
             assert "final_size_gb" in download_info
 
+    @patch('src.services.model_service.get_model_info', return_value={"estimated_size_gb": 15.0})
     @patch('src.services.model_service.check_disk_space')
-    def test_on_model_download_insufficient_disk_space(self, mock_disk):
+    def test_on_model_download_insufficient_disk_space(self, mock_disk, mock_info):
         """測試磁碟空間不足的錯誤處理"""
         # Mock 磁碟空間不足
         mock_disk.return_value = (False, 1.0)  # Only 1GB available
@@ -166,14 +166,16 @@ class TestModelDownloadEventContract:
         assert "磁碟空間不足" in response["message"]
         assert "GB" in response["message"]
 
-    @patch('src.services.model_service.load_model_4bit')
+    @patch('src.services.model_service.time.sleep')
+    @patch('src.services.model_service.get_model_info', return_value={"estimated_size_gb": 15.0})
+    @patch('src.services.model_service.snapshot_download')
     @patch('src.services.model_service.check_disk_space')
-    def test_on_model_download_network_interrupt(self, mock_disk, mock_load):
+    def test_on_model_download_network_interrupt(self, mock_disk, mock_download, mock_info, mock_sleep):
         """測試下載中斷的錯誤處理"""
         mock_disk.return_value = (True, 100.0)
 
         # Mock 下載中斷
-        mock_load.side_effect = ConnectionError("Download interrupted")
+        mock_download.side_effect = ConnectionError("Download interrupted")
 
         response = download_model(model_id="test/model")
 
@@ -224,14 +226,10 @@ class TestDatasetSelectionEventContract:
     @patch('src.services.dataset_service.load_dataset')
     def test_on_dataset_select_invalid_format(self, mock_load):
         """測試資料集格式驗證失敗"""
-        from datasets import Dataset
-        # Mock 格式不正確的資料集
-        mock_dataset = Dataset.from_dict({
-            "question": ["Q"],
-            "answer": ["A"]
-            # 缺少必要欄位
-        })
-        mock_load.return_value = {"train": mock_dataset}
+        # on_dataset_selected 以 streaming 讀取前幾筆；Mock 欄位不符的資料
+        mock_streaming = Mock()
+        mock_streaming.take.return_value = [{"foo": "Q", "bar": "A"}]
+        mock_load.return_value = mock_streaming
 
         response = on_dataset_selected("test/invalid-format")
 

@@ -8,10 +8,12 @@ from unittest.mock import Mock, patch
 
 from src.services.hardware_service import get_hardware_info
 
-GIB = 1024 ** 3
+GIB = 1024**3
 
 
-def _build_torch_mock(cuda_available: bool, total_gib: float = 12.0, free_gib: float = 10.0) -> Mock:
+def _build_torch_mock(
+    cuda_available: bool, total_gib: float = 12.0, free_gib: float = 10.0
+) -> Mock:
     """建立模擬的 torch 模組"""
     torch_mock = Mock()
     torch_mock.cuda.is_available.return_value = cuda_available

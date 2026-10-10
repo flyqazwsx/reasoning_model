@@ -33,9 +33,11 @@ FAKE_DATASETS = [
 @pytest.fixture(autouse=True)
 def fake_catalog():
     """固定內建清單與訓練額外負擔，讓門檻計算可預期"""
-    with patch.object(recommend_service, "DEFAULT_BASE_MODELS", FAKE_MODELS), \
-            patch.object(recommend_service, "DEFAULT_DATASETS", FAKE_DATASETS), \
-            patch.object(recommend_service, "TRAINING_OVERHEAD_GB", 1.0):
+    with (
+        patch.object(recommend_service, "DEFAULT_BASE_MODELS", FAKE_MODELS),
+        patch.object(recommend_service, "DEFAULT_DATASETS", FAKE_DATASETS),
+        patch.object(recommend_service, "TRAINING_OVERHEAD_GB", 1.0),
+    ):
         yield
 
 

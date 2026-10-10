@@ -77,14 +77,14 @@ description: "002 本機 Thinking Model QLoRA 微調示範 — 任務清單"
 
 ### 實作
 
-- [ ] T025 [P] [US1] **新增** `src/services/hardware_service.py`：`get_hardware_info()`（`torch.cuda.get_device_properties`、`mem_get_info`）
-- [ ] T026 [US1] **新增** `src/services/recommend_service.py`：`recommend_models(free_vram_gb)`、`recommend_datasets()`（依賴 T025 的輸出格式）
-- [ ] T027 [US1] **修改** `src/services/model_service.py`：新增 `check_custom_model()`（Hub metadata 估算、`gated` 偵測）；`download_model()` 改用 `snapshot_download(tqdm_class=…)` 回報進度、不傳 token；加入重試（`DOWNLOAD_RETRY_ATTEMPTS`）與友善錯誤訊息；下載前檢查磁碟空間
-- [ ] T027a [US1] **修改** `src/services/model_service.py`、`src/services/dataset_service.py`：以共用的取消旗標（`threading.Event`）搭配 T027 的 `tqdm_class` 檢查點中止下載，提供 `cancel_download()`；保留已下載的檔案以利續傳
-- [ ] T028 [US1] **修改** `src/services/dataset_service.py`：`download_dataset(sample_count=None)` 支援 `train[:N]`；判斷 `has_reasoning_field`；錯誤對應同 T027
-- [ ] T029 [US1] **修改** `src/config.py` 的 `DEFAULT_DATASETS`：逐一到 Hugging Face 驗證 Hub ID 真實存在（尤其 `open-r1/Mixture-of-Thoughts`、gsm8k），不存在或需授權者移除；於 `research.md` R6 補記驗證日期與結果
-- [ ] T030 [US1] **修改** `src/ui/tabs/setup_tab.py`、`src/ui/events.py`：頁面載入觸發 E-01／E-02，顯示硬體資訊與推薦清單（不建議者標示）；自訂代號輸入框觸發 E-03；下載按鈕以 generator 顯示進度與日誌；下載期間顯示「取消下載」按鈕（觸發 E-11）並禁止重複送出下載
-- [ ] T031 [US1] 執行 T019～T024a 全部轉綠；`pytest tests/unit tests/contract tests/integration -k "not gpu" -q`
+- [X] T025 [P] [US1] **新增** `src/services/hardware_service.py`：`get_hardware_info()`（`torch.cuda.get_device_properties`、`mem_get_info`）
+- [X] T026 [US1] **新增** `src/services/recommend_service.py`：`recommend_models(free_vram_gb)`、`recommend_datasets()`（依賴 T025 的輸出格式）
+- [X] T027 [US1] **修改** `src/services/model_service.py`：新增 `check_custom_model()`（Hub metadata 估算、`gated` 偵測）；`download_model()` 改用 `snapshot_download(tqdm_class=…)` 回報進度、不傳 token；加入重試（`DOWNLOAD_RETRY_ATTEMPTS`）與友善錯誤訊息；下載前檢查磁碟空間
+- [X] T027a [US1] **修改** `src/services/model_service.py`、`src/services/dataset_service.py`：以共用的取消旗標（`threading.Event`）搭配 T027 的 `tqdm_class` 檢查點中止下載，提供 `cancel_download()`；保留已下載的檔案以利續傳
+- [X] T028 [US1] **修改** `src/services/dataset_service.py`：`download_dataset(sample_count=None)` 支援 `train[:N]`；判斷 `has_reasoning_field`；錯誤對應同 T027
+- [X] T029 [US1] **修改** `src/config.py` 的 `DEFAULT_DATASETS`：逐一到 Hugging Face 驗證 Hub ID 真實存在（尤其 `open-r1/Mixture-of-Thoughts`、gsm8k），不存在或需授權者移除；於 `research.md` R6 補記驗證日期與結果
+- [X] T030 [US1] **修改** `src/ui/tabs/setup_tab.py`、`src/ui/events.py`：頁面載入觸發 E-01／E-02，顯示硬體資訊與推薦清單（不建議者標示）；自訂代號輸入框觸發 E-03；下載按鈕以 generator 顯示進度與日誌；下載期間顯示「取消下載」按鈕（觸發 E-11）並禁止重複送出下載
+- [X] T031 [US1] 執行 T019～T024a 全部轉綠；`pytest tests/unit tests/contract tests/integration -k "not gpu" -q`
 
 **Checkpoint**: US1 可獨立運作並驗證（MVP）。此時可 demo「選模型、選資料集、下載」
 

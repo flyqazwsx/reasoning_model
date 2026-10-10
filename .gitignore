@@ -7,3 +7,6 @@ exports
 logs
 outputs
 unsloth_compiled_cache
+
+# Playwright MCP 暫存
+.playwright-mcp/

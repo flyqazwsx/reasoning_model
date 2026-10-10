@@ -10,7 +10,7 @@ import pytest
 
 from src.services import dataset_service, model_service
 from src.utils import download_control
-from src.utils.download_control import DownloadCancelled
+from src.utils.download_control import DownloadCancelledError
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +33,7 @@ class TestDownloadControl:
 
         assert download_control.request_cancel() is True
         assert download_control.is_cancel_requested() is True
-        with pytest.raises(DownloadCancelled):
+        with pytest.raises(DownloadCancelledError):
             download_control.raise_if_cancelled()
 
     def test_end_download_clears_state(self):
@@ -59,8 +59,10 @@ class TestModelDownloadCancel:
 
     @pytest.fixture(autouse=True)
     def common_patches(self):
-        with patch.object(model_service, "check_disk_space", return_value=(True, 100.0)), \
-                patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}):
+        with (
+            patch.object(model_service, "check_disk_space", return_value=(True, 100.0)),
+            patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}),
+        ):
             yield
 
     def test_cancel_during_download_stops_and_keeps_partial(self, tmp_path):
@@ -125,8 +127,10 @@ class TestDatasetDownloadCancel:
             model_service.cancel_download()  # 模擬載入期間使用者按下取消
             return {"train": []}
 
-        with patch.object(dataset_service, "load_dataset", side_effect=fake_load_dataset), \
-                patch.object(dataset_service, "estimate_dataset_size_gb", return_value=None):
+        with (
+            patch.object(dataset_service, "load_dataset", side_effect=fake_load_dataset),
+            patch.object(dataset_service, "estimate_dataset_size_gb", return_value=None),
+        ):
             response = dataset_service.on_dataset_download("org/dataset", sample_count=100)
 
         assert response["status"] == "warning"

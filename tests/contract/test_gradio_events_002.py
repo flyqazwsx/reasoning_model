@@ -50,9 +50,9 @@ def _torch_mock(cuda_available: bool) -> Mock:
     torch_mock.cuda.is_available.return_value = cuda_available
     props = Mock()
     props.name = "NVIDIA GeForce RTX 3080 Ti"
-    props.total_memory = 12 * 1024 ** 3
+    props.total_memory = 12 * 1024**3
     torch_mock.cuda.get_device_properties.return_value = props
-    torch_mock.cuda.mem_get_info.return_value = (10 * 1024 ** 3, 12 * 1024 ** 3)
+    torch_mock.cuda.mem_get_info.return_value = (10 * 1024**3, 12 * 1024**3)
     return torch_mock
 
 
@@ -66,7 +66,10 @@ class TestE01HardwareDetection:
         assert_contract_shape(response)
         assert response["status"] == "success"
         assert set(response["hardware"]) == {
-            "device_name", "total_vram_gb", "free_vram_gb", "cuda_available",
+            "device_name",
+            "total_vram_gb",
+            "free_vram_gb",
+            "cuda_available",
         }
 
     def test_without_gpu_is_warning_with_exact_message(self):
@@ -110,7 +113,9 @@ class TestE03CustomModelCheck:
 
     @staticmethod
     def _hub_info(total_params: int, gated=False) -> Mock:
-        return Mock(safetensors=Mock(total=total_params), gated=gated, tags=[], downloads=0, likes=0)
+        return Mock(
+            safetensors=Mock(total=total_params), gated=gated, tags=[], downloads=0, likes=0
+        )
 
     @patch("src.services.model_service.HfApi")
     def test_success_shape(self, mock_hf_api):
@@ -133,7 +138,9 @@ class TestE03CustomModelCheck:
 
     @patch("src.services.model_service.HfApi")
     def test_gated_is_error_with_exact_message(self, mock_hf_api):
-        mock_hf_api.return_value.model_info.return_value = self._hub_info(8_000_000_000, gated="manual")
+        mock_hf_api.return_value.model_info.return_value = self._hub_info(
+            8_000_000_000, gated="manual"
+        )
 
         response = check_custom_model("org/gated", free_vram_gb=12.0)
 
@@ -179,9 +186,11 @@ class TestModelDownloadEvent:
 
     @pytest.fixture(autouse=True)
     def common_patches(self):
-        with patch.object(model_service, "check_disk_space", return_value=(True, 100.0)), \
-                patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}), \
-                patch.object(model_service.time, "sleep"):
+        with (
+            patch.object(model_service, "check_disk_space", return_value=(True, 100.0)),
+            patch.object(model_service, "get_model_info", return_value={"estimated_size_gb": 15.0}),
+            patch.object(model_service.time, "sleep"),
+        ):
             yield
 
     def test_success(self, tmp_path):
